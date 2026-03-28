@@ -1,16 +1,40 @@
 {
   "name": "@groundctl/cli",
   "version": "0.1.0",
-  "description": "The shared memory your agents and you actually need.",
+  "description": "Product memory for AI agent builders",
   "license": "MIT",
   "bin": {
-    "groundctl": "./dist/index.js"
+    "groundctl": "dist/index.js"
   },
   "main": "./dist/index.js",
   "type": "module",
+  "files": [
+    "dist"
+  ],
+  "keywords": [
+    "ai",
+    "agents",
+    "claude-code",
+    "codex",
+    "product",
+    "memory",
+    "multi-agent",
+    "cli"
+  ],
+  "homepage": "https://groundctl.org",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/groundctl/groundctl.git"
+  },
+  "bugs": {
+    "url": "https://github.com/groundctl/groundctl/issues"
+  },
   "scripts": {
     "build": "tsup src/index.ts --format esm --dts --clean",
     "dev": "tsup src/index.ts --format esm --watch"
+  },
+  "engines": {
+    "node": ">=18"
   },
   "dependencies": {
     "sql.js": "^1.10.0",
