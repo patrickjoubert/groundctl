@@ -1,0 +1,12 @@
+node_modules/
+dist/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+.groundctl/
+PROJECT_STATE.md
+AGENTS.md
+SESSION_REPORT.md
+SESSION_HISTORY.md
+.claude/hooks/
+.codex/hooks/
