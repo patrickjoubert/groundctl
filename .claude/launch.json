@@ -4,7 +4,7 @@
     {
       "name": "dashboard",
       "runtimeExecutable": "node",
-      "runtimeArgs": ["packages/dashboard/src/server.js"],
+      "runtimeArgs": ["packages/cli/dist/index.js", "dashboard"],
       "port": 4242
     }
   ]
