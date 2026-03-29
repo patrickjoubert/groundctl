@@ -99,7 +99,31 @@ The agent never starts from zero again.
 | `groundctl report` | Generate SESSION_REPORT.md |
 | `groundctl health` | Quality score + debt tracker |
 | `groundctl ingest` | Parse transcript → SQLite |
-| `groundctl dashboard` | Web dashboard at port 4242 |
+| `groundctl dashboard` | Web dashboard (3 views) at port 4242 |
+| `groundctl watch` | Auto-ingest daemon — watches for session end |
+| `groundctl plan [description]` | AI-powered feature planning |
+| `groundctl launch <feature>` | Claim + start a Claude Code agent session |
+| `groundctl agents` | List active agents with duration + stale detection |
+| `groundctl stale` | Detect and release stale claims (>2h inactive) |
+| `groundctl doctor` | Diagnose your setup: version, daemon, proxy, groups |
+| `groundctl update feature <name>` | Update feature progress, group, priority |
+
+## Dashboard
+
+```bash
+groundctl dashboard
+# Opens http://localhost:4242
+```
+
+Three views:
+
+**LE PLAN** — The full product map. Every feature as a card, grouped by functional area. Click any card to see description, items, dependencies, and launch an agent. Dependency arrows show what blocks what.
+
+**LE CHANTIER** — The operational view. Active agents with elapsed time and stale detection. Ready-to-launch features with one-click claiming. Blocked features with dependency details. Real-time alerts.
+
+**LES CORPS DE MÉTIER** — Per-group progress. Each group shows its features, completion %, and which pairs of features can run in parallel right now.
+
+Auto-refreshes every 5s. Zero external dependencies — pure Node HTTP server.
 
 ## Claiming system
 
@@ -136,21 +160,21 @@ No race conditions. No duplicated work. SQLite WAL mode handles concurrent write
 
 ## Meta
 
-groundctl was built using groundctl.
+groundctl was built using groundctl — 15 sessions, 24 features, 100% implemented.
 
 Sessions S1–S∞ tracked in [PROJECT_STATE.md](PROJECT_STATE.md).
 
-```bash
+```
 $ groundctl status  # run in this repo
 
-  groundctl — 60% implemented (2 sessions)
+  groundctl — 96% implemented (15 sessions)
 
-  Features  ████████████░░░░░░░░  6/10 done
+  Features  ███████████████████░  24/25 done
 
-  Available:
-    ○ npm-publish (high)
-    ○ show-hn-launch (high)
-    ○ dashboard (medium)
+  CORE CLI        ████████████████████  6/6 done
+  INTELLIGENCE    ████████████████████  7/7 done
+  OBSERVABILITY   ████████████████████  3/3 done
+  DISTRIBUTION    ████████████████████  6/6 done
 ```
 
 ## License
