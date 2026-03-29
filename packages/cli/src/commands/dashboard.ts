@@ -168,7 +168,7 @@ body{background:var(--bg);color:var(--tx);font-family:var(--mo);font-size:13px;l
   <div class="hi">
     <div><span class="${meta.done > 0 ? "ok" : "warn"}">${meta.done > 0 ? "✓" : "⚠"}</span><span>Features ${meta.done}/${meta.total}</span></div>
     <div><span class="${meta.testFiles > 0 ? "ok" : "bad"}">${meta.testFiles > 0 ? "✓" : "✗"}</span><span>Tests ${meta.testFiles} files</span></div>
-    <div><span class="${meta.decCount  > 0 ? "ok" : "warn"}">${meta.decCount  > 0 ? "✓" : "⚠"}</span><span>Decisions ${meta.decCount}</span></div>
+    <div><span class="${meta.decCount  > 0 ? "ok" : "warn"}">${meta.decCount  > 0 ? "✓" : "⚠"}</span><span>Architecture log ${meta.decCount} entries</span></div>
     <div><span class="${meta.stale === 0 ? "ok" : "bad"}">${meta.stale === 0 ? "✓" : "✗"}</span><span>Claims ${meta.stale > 0 ? meta.stale + " stale" : "healthy"}</span></div>
   </div></div>
   <div class="rn">auto-refresh 10s<br><span style="color:var(--br)">${esc(dbPath.split("/").slice(-3).join("/"))}</span></div>

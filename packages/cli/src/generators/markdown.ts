@@ -123,7 +123,7 @@ export function generateProjectState(
   }
 
   if (decisions.length > 0) {
-    md += "## Decisions made\n";
+    md += "## Architecture log\n";
     for (const d of decisions) {
       md += `- ${d.session_id}: ${d.description}`;
       if (d.rationale) md += ` — ${d.rationale}`;

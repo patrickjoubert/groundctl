@@ -97,9 +97,9 @@ function buildSessionReport(
     md += "\n";
   }
 
-  // Decisions
+  // Architecture log
   if (decisions.length > 0) {
-    md += "## Decisions\n";
+    md += "## Architecture log\n";
     for (const d of decisions) {
       md += `- ${d.description}`;
       if (d.rationale) md += ` — ${d.rationale}`;
@@ -232,6 +232,6 @@ export async function reportCommand(options: ReportOptions): Promise<void> {
   writeFileSync(outPath, report);
 
   console.log(chalk.green(`\n  ✓ SESSION_REPORT.md written (session ${session.id})\n`));
-  console.log(chalk.gray(`  ${files.length} files · ${decisions.length} decisions · ${completedFeatures.length} features completed`));
+  console.log(chalk.gray(`  ${files.length} files · ${decisions.length} arch log entries · ${completedFeatures.length} features completed`));
   console.log("");
 }

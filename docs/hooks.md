@@ -61,6 +61,16 @@ groundctl extracts:
 | Decisions | Assistant text | regex patterns (see below) |
 | Session summary | Last assistant text block | first meaningful line |
 
+## Architecture log capture
+
+groundctl detects architecture decisions from your Claude Code transcript — library choices, tradeoffs, rejected alternatives — and logs them so you never lose the "why" behind your code.
+
+These entries appear in:
+- `groundctl health` (Architecture log score)
+- `groundctl report` (Architecture log section in SESSION_REPORT.md)
+- `PROJECT_STATE.md` (Architecture log section for next agent to read)
+- `groundctl dashboard` (Architecture log count in the sidebar)
+
 ## Decision detection
 
 groundctl looks for these patterns in assistant text:

@@ -90,11 +90,11 @@ export async function healthCommand(): Promise<void> {
     (testFiles === 0 ? chalk.red("  (-20pts)") : chalk.gray(`  +${testScore}pts`))
   );
 
-  // Decisions
+  // Architecture log
   const decMark = decisionCount > 0 ? "✅" : "⚠️ ";
   const decColor = decisionCount > 0 ? chalk.green : chalk.yellow;
   console.log(
-    `  ${decMark} Decisions   ${decColor(decisionCount + " documented")}` +
+    `  ${decMark} Arch log    ${decColor(decisionCount + " entries")}` +
     chalk.gray(`  +${decisionScore}pts`)
   );
 
@@ -120,7 +120,7 @@ export async function healthCommand(): Promise<void> {
   const recommendations: string[] = [];
   if (testFiles === 0) recommendations.push("Write tests before your next feature (0 test files found).");
   if (staleClaims > 0) recommendations.push(`Release ${staleClaims} stale claim(s) with groundctl complete <feature>.`);
-  if (decisionCount === 0) recommendations.push("Document decisions during sessions so agents have context.");
+  if (decisionCount === 0) recommendations.push("Log architecture decisions during sessions so agents understand the why.");
   if (featurePct < 0.5 && total > 0) recommendations.push(`${counts.pending} features pending — run groundctl next to pick one.`);
 
   if (recommendations.length > 0) {
