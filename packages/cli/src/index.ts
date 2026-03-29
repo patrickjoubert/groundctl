@@ -14,6 +14,7 @@ import { reportCommand } from "./commands/report.js";
 import { healthCommand } from "./commands/health.js";
 import { dashboardCommand } from "./commands/dashboard.js";
 import { watchCommand } from "./commands/watch.js";
+import { updateCommand } from "./commands/update.js";
 
 const require = createRequire(import.meta.url);
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -71,6 +72,8 @@ program
   .option("-p, --priority <priority>", "Priority (critical, high, medium, low)")
   .option("-d, --description <desc>", "Description")
   .option("--agent <agent>", "Agent type for sessions")
+  .option("--items <items>", "Comma-separated list of sub-items (features only)")
+  .option("--progress <N/N>", "Progress fraction e.g. 11/11 (features only)")
   .action(addCommand);
 
 program
@@ -118,6 +121,24 @@ program
     watchCommand({
       daemon: opts.daemon,
       projectPath: opts.projectPath,
+    })
+  );
+
+program
+  .command("update <type> <name>")
+  .description("Update a feature's description, items, progress, or priority")
+  .option("-d, --description <desc>", "New description")
+  .option("--items <items>", "Comma-separated sub-items")
+  .option("--progress <N/N>", "Progress fraction e.g. 3/5")
+  .option("-p, --priority <priority>", "New priority")
+  .option("--status <status>", "New status (pending|in_progress|done|blocked)")
+  .action((type, name, opts) =>
+    updateCommand(type, name, {
+      description: opts.description,
+      items: opts.items,
+      progress: opts.progress,
+      priority: opts.priority,
+      status: opts.status,
     })
   );
 
