@@ -3,12 +3,146 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>groundctl — product memory for AI agent builders</title>
-  <meta name="description" content="When Claude Code builds your product across sessions, nobody remembers what was built, what's left, or what's claimed. groundctl fixes that.">
-  <meta property="og:title" content="groundctl — product memory for AI agent builders">
-  <meta property="og:description" content="The shared memory your agents and you actually need.">
+  <title>groundctl — run multiple AI agents without losing track</title>
+  <meta name="description" content="You can run 5 AI agents in parallel. But you can't keep track of what they're doing. groundctl fixes that.">
+  <meta property="og:title" content="groundctl — run multiple AI agents without losing track">
+  <meta property="og:description" content="You can run 5 AI agents in parallel. But you can't keep track of what they're doing. groundctl fixes that.">
   <meta property="og:url" content="https://groundctl.org">
   <link rel="stylesheet" href="style.css">
+  <style>
+    /* ── Page-specific additions ── */
+    .hook {
+      padding: 56px 0;
+      text-align: center;
+      border-top: 1px solid var(--border);
+    }
+    .hook-line {
+      font-size: 1.15rem;
+      color: var(--text-mid);
+      line-height: 1.9;
+    }
+    .hook-line strong {
+      color: #fff;
+      font-size: 1.2rem;
+    }
+
+    .problem-list {
+      padding: 0 0 56px;
+      border-bottom: 1px solid var(--border);
+    }
+    .problem-list p {
+      font-size: 1rem;
+      color: var(--text-mid);
+      margin-bottom: 14px;
+      font-weight: 600;
+    }
+    .problem-list ul {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .problem-list li {
+      font-size: 1rem;
+      color: var(--text-mid);
+      padding-left: 4px;
+    }
+    .problem-list li::before {
+      content: "→ ";
+      color: var(--text-dim);
+    }
+
+    .core-loop {
+      padding: 56px 0;
+    }
+    .core-loop h2 {
+      font-size: 1.1rem;
+      font-weight: 600;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      font-family: var(--mono);
+      margin-bottom: 28px;
+    }
+
+    .how-steps {
+      padding: 56px 0;
+      border-top: 1px solid var(--border);
+    }
+    .how-steps h2 {
+      font-size: 1.1rem;
+      font-weight: 600;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      font-family: var(--mono);
+      margin-bottom: 28px;
+    }
+    .how-step-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+      margin-bottom: 28px;
+    }
+    .how-step-card {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 22px 20px;
+    }
+    .how-step-num {
+      font-family: var(--mono);
+      font-size: 1.4rem;
+      color: var(--green);
+      font-weight: 700;
+      margin-bottom: 10px;
+    }
+    .how-step-cmd {
+      font-family: var(--mono);
+      font-size: 0.9rem;
+      color: var(--green);
+      margin-bottom: 8px;
+    }
+    .how-step-desc {
+      font-size: 0.875rem;
+      color: var(--text-mid);
+      line-height: 1.6;
+    }
+    .watch-note {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 20px 24px;
+      font-size: 0.9rem;
+      color: var(--text-mid);
+      line-height: 1.7;
+    }
+    .watch-note strong { color: var(--text); }
+    .watch-note code {
+      font-family: var(--mono);
+      font-size: 0.85rem;
+      color: var(--green);
+    }
+
+    .philosophy {
+      padding: 56px 0;
+      text-align: center;
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+    }
+    .philosophy p {
+      font-size: 1.05rem;
+      color: var(--text-mid);
+      line-height: 1.9;
+    }
+    .philosophy strong { color: #fff; }
+
+    .demo-svg { margin-bottom: 0; }
+
+    @media (max-width: 600px) {
+      .how-step-grid { grid-template-columns: 1fr; }
+    }
+  </style>
 </head>
 <body>
 
@@ -32,119 +166,70 @@
     </div>
   </section>
 
-  <!-- DEMO TERMINAL -->
-  <section class="demo-svg">
-    <pre class="terminal" style="max-width:720px;margin:0 auto;text-align:left;font-size:0.82rem;line-height:1.55;overflow-x:auto;"><span class="prompt">$</span> groundctl status --detail
-
-  groundctl — 100% implemented (11 sessions)
-
-  Features  ████████████████████  21/21 done
-
-  <span class="grp-header">CORE CLI         ████████████████████  6/6 done</span>
-    <span class="success">✓</span> foundation-cli  ██████████████  5/5   CLI skeleton, Commander.js, ESM
-    <span class="success">✓</span> sqlite-schema   ██████████████  6/6   features, sessions, claims, decisions
-    <span class="success">✓</span> cli-commands    ██████████████  11/11 init · status · claim · next · watch
-    <span class="success">✓</span> rich-status     ██████████████  5/5   progress bars, items, update cmd
-
-  <span class="grp-header">INTELLIGENCE     ████████████████████  6/6 done</span>
-    <span class="success">✓</span> auto-detect     ██████████████  5/5   claude-haiku detects features from git
-    <span class="success">✓</span> session-ingest  ██████████████  6/6   parse transcripts → SQLite
-    <span class="success">✓</span> watch           ██████████████  5/5   daemon auto-ingests on session end
-
-  <span class="grp-header">OBSERVABILITY    ████████████████████  3/3 done</span>
-    <span class="success">✓</span> dashboard       ██████████████  5/5   web UI port 4242, auto-refresh 10s
-
-  <span class="grp-header">DISTRIBUTION     ████████████████████  6/6 done</span>
-    <span class="success">✓</span> groundctl.org   ██████████████  4/4   groundctl.org — hero, install, docs
-    <span class="success">✓</span> npm-publish     ██████████████  1/1   @groundctl/cli on npm</pre>
-  </section>
-
-  <!-- PROBLEM -->
-  <section class="problem">
-    <p>
-      When Claude Code builds your product across sessions,<br>
-      nobody remembers what was built, what's left, or what's claimed.<br>
-      <strong>groundctl fixes that — for you and for your agents.</strong>
+  <!-- HOOK -->
+  <section class="hook">
+    <p class="hook-line">
+      You can run 5 AI agents in parallel.<br>
+      But you can't keep track of what they're doing.<br>
+      <strong>groundctl fixes that.</strong>
     </p>
   </section>
 
+  <!-- THE PROBLEM -->
+  <section class="problem-list">
+    <p>When you scale agents:</p>
+    <ul>
+      <li>work overlaps</li>
+      <li>progress is unclear</li>
+      <li>next steps are guesswork</li>
+      <li>mental load explodes</li>
+    </ul>
+  </section>
 
-  <!-- USE CASES -->
-  <section class="use-cases">
-    <div class="cards">
+  <!-- CORE LOOP -->
+  <section class="core-loop">
+    <h2>Core loop</h2>
+    <pre class="terminal" style="font-size:0.85rem;line-height:1.75;"><span class="prompt">$</span> groundctl claim "auth-system"
+  <span class="success">✓</span> claimed by this session
 
-      <div class="card">
-        <div class="card-icon">①</div>
-        <h3>Solo builder</h3>
-        <p>Pick up exactly where you left off. <code>groundctl status</code> tells you — and your agent — what's been built, what's next, what's in progress.</p>
-        <div class="card-result">30 seconds to productive session, not 30 minutes.</div>
-      </div>
+<span class="prompt">$</span> groundctl claim "api-v2"
+  <span class="success">✓</span> claimed by this session
 
-      <div class="card">
-        <div class="card-icon">②</div>
-        <h3>Headless agent</h3>
-        <p>Run agents overnight. Each one reads <code>PROJECT_STATE.md</code> on startup and knows exactly where the product stands — no instructions needed.</p>
-        <div class="card-result">Agents that don't start from zero.</div>
-      </div>
+<span class="comment"># no overlap. no confusion.</span>
 
-      <div class="card">
-        <div class="card-icon">③</div>
-        <h3>N agents in parallel</h3>
-        <p>The claiming system prevents collisions. Each agent reserves what it's working on. No duplicate work, no conflicts, no drift.</p>
-        <div class="card-result">10 agents. One product. No chaos.</div>
-      </div>
+<span class="prompt">$</span> groundctl next
+  → markets-de <span class="comment">(high priority, no blocking deps)</span>
 
-    </div>
+<span class="prompt">$</span> groundctl complete "auth-system"
+  <span class="success">✓</span> released — ready for next agent</pre>
   </section>
 
   <!-- HOW IT WORKS -->
-  <section class="how-it-works">
+  <section class="how-steps">
     <h2>How it works</h2>
-
-    <div class="steps">
-      <div class="step">
-        <span class="step-num">1</span>
-        <div>
-          <strong>Init once</strong>
-          <p>groundctl creates a local SQLite database and installs hooks in your Claude Code project.</p>
-        </div>
+    <div class="how-step-grid">
+      <div class="how-step-card">
+        <div class="how-step-num">①</div>
+        <div class="how-step-cmd">claim</div>
+        <div class="how-step-desc">Agent reserves a work unit. No other agent can take it.</div>
       </div>
-      <div class="step">
-        <span class="step-num">2</span>
-        <div>
-          <strong>Hooks run automatically</strong>
-          <p>After every session, the hook parses the transcript — files touched, commits, decisions — and writes to SQLite.</p>
-        </div>
+      <div class="how-step-card">
+        <div class="how-step-num">②</div>
+        <div class="how-step-cmd">complete</div>
+        <div class="how-step-desc">Marks it done. Releases the claim. State updates instantly.</div>
       </div>
-      <div class="step">
-        <span class="step-num">3</span>
-        <div>
-          <strong>Agents read state</strong>
-          <p><code>PROJECT_STATE.md</code> and <code>AGENTS.md</code> are regenerated from SQLite. The next agent reads them and knows where to start.</p>
-        </div>
-      </div>
-      <div class="step">
-        <span class="step-num">4</span>
-        <div>
-          <strong>Claim, build, complete</strong>
-          <p><code>groundctl claim</code> reserves a feature. <code>groundctl complete</code> marks it done. No duplicate work across parallel sessions.</p>
-        </div>
+      <div class="how-step-card">
+        <div class="how-step-num">③</div>
+        <div class="how-step-cmd">next</div>
+        <div class="how-step-desc">Surfaces what to build next — by priority, with no blocking deps.</div>
       </div>
     </div>
-  </section>
-
-  <!-- META: BUILT WITH GROUNDCTL -->
-  <section class="meta-built">
-    <h2>groundctl builds itself</h2>
-    <p>groundctl was built using groundctl.</p>
-    <div class="meta-stats">
-      <span>11 sessions</span>
-      <span>21 features</span>
-      <span>100% implemented</span>
+    <div class="watch-note">
+      <strong>groundctl watch</strong> runs in background after <code>groundctl init</code>.<br>
+      After every Claude Code session: ingests transcript → updates shared state → regenerates
+      <code>PROJECT_STATE.md</code> + <code>AGENTS.md</code>.<br>
+      The next agent reads them and knows exactly where to start. Zero manual steps. Always in sync.
     </div>
-    <p class="meta-desc">PROJECT_STATE.md was updated automatically after every session.<br>
-    Each agent read it on startup and knew exactly where to start.</p>
-    <a href="https://github.com/patrickjoubert/groundctl/blob/main/PROJECT_STATE.md" class="btn-secondary" style="display:inline-block;margin-top:16px;">View PROJECT_STATE.md →</a>
   </section>
 
   <!-- INSTALL -->
@@ -157,48 +242,71 @@
   <span class="success">✓</span> Database ready
   <span class="success">✓</span> Claude Code hooks installed
   <span class="success">✓</span> PROJECT_STATE.md generated
-  <span class="success">✓</span> groundctl initialized for your-project
+  <span class="success">✓</span> groundctl watch started
 
 <span class="comment"># Or bootstrap from existing git history:</span>
 <span class="prompt">$</span> groundctl init --import-from-git</pre>
 
     <div class="commands-grid">
       <div class="cmd-row">
-        <code>groundctl status</code>
-        <span>macro view of what's built</span>
+        <code>groundctl claim &lt;feature&gt;</code>
+        <span>reserve a work unit for this session</span>
       </div>
       <div class="cmd-row">
-        <code>groundctl claim &lt;feature&gt;</code>
-        <span>reserve a feature for this session</span>
+        <code>groundctl complete &lt;feature&gt;</code>
+        <span>mark done, release claim</span>
       </div>
       <div class="cmd-row">
         <code>groundctl next</code>
         <span>what should the agent build next</span>
       </div>
       <div class="cmd-row">
-        <code>groundctl health</code>
-        <span>quality score + accumulated debt</span>
+        <code>groundctl status</code>
+        <span>macro view of what's built</span>
       </div>
       <div class="cmd-row">
-        <code>groundctl report</code>
-        <span>generate SESSION_REPORT.md</span>
+        <code>groundctl agents</code>
+        <span>list active agents with stale detection</span>
       </div>
       <div class="cmd-row">
-        <code>groundctl ingest</code>
-        <span>parse transcript → SQLite</span>
-      </div>
-      <div class="cmd-row">
-        <code>groundctl doctor</code>
-        <span>diagnose your setup</span>
+        <code>groundctl dashboard</code>
+        <span>visual cockpit — LE PLAN · LE CHANTIER · CORPS DE MÉTIER</span>
       </div>
     </div>
   </section>
 
+  <!-- PHILOSOPHY -->
+  <section class="philosophy">
+    <p>
+      The problem is not that AI agents are weak.<br>
+      It's that humans can't track them when they scale.<br>
+      <strong>That's what groundctl solves.</strong>
+    </p>
+  </section>
+
   <!-- META -->
+  <section class="meta-built">
+    <h2>groundctl builds itself</h2>
+    <p>groundctl was built using groundctl.</p>
+    <div class="meta-stats">
+      <span>15 sessions</span>
+      <span>24 features</span>
+      <span>100% implemented</span>
+    </div>
+    <p class="meta-desc">
+      PROJECT_STATE.md was updated automatically after every session.<br>
+      Each agent read it on startup and knew exactly where to start.
+    </p>
+    <a href="https://github.com/patrickjoubert/groundctl/blob/main/PROJECT_STATE.md"
+       class="btn-secondary" style="display:inline-block;margin-top:16px;">
+      View PROJECT_STATE.md →
+    </a>
+  </section>
+
+  <!-- FOOTER -->
   <footer>
     <p class="meta">
-      Built using groundctl &middot;
-      11 sessions &middot; 21 features &middot; tracked in
+      groundctl.org &middot; MIT License &middot;
       <a href="https://github.com/patrickjoubert/groundctl/blob/main/PROJECT_STATE.md">PROJECT_STATE.md</a>
     </p>
     <p class="footer-links">
@@ -206,7 +314,8 @@
       &middot;
       <a href="https://www.npmjs.com/package/@groundctl/cli">npm</a>
       &middot;
-      MIT License
+      Created by <a href="https://github.com/patrickjoubert">Patrick Joubert</a>,
+      co-founder of <a href="https://rippletide.com">Rippletide</a>
     </p>
   </footer>
 
