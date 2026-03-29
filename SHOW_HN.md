@@ -1,116 +1,100 @@
-# Show HN: groundctl – Always know what to build next (MIT)
+# Show HN: groundctl – run multiple AI agents without losing track (MIT)
 
-**Title:** Show HN: groundctl – Always know what to build next (MIT)
+**Title:** Show HN: groundctl – run multiple AI agents without losing track of what's being built (MIT)
 
 **URL:** https://groundctl.org
 
 ---
 
-## Body
+## Post text
 
-I built an EV specs API (evspec.io) using only Claude Code
-across 7 sessions. After session 3, I had no idea what had
-been built, what was left, or why certain decisions were made.
+You can run 5 Claude Code agents in parallel.
+But you can't keep track of what they're doing.
 
-Jira assumes a human is tracking everything.
-It doesn't know about sessions, transcripts, or parallel agents.
+I tried. Building evspec.io — a European EV specs API —
+across 7 sessions with Claude Code, I kept losing the
+thread. What was built? What was left? What should each
+agent do next?
+
+Jira and Linear assume a human is tracking everything.
+They don't know about sessions, parallel agents, or
+transcript history.
 
 So I built groundctl — and used it to build itself.
 
-    $ groundctl status --detail
+The core loop is 3 commands:
 
-    groundctl — 100% implemented (11 sessions)
+  groundctl claim "markets-de"    # agent reserves work
+  groundctl complete "markets-de" # marks it done
+  groundctl next                  # what to build next
 
-    Features  ████████████████████  21/21 done
+The killer feature: groundctl watch runs as a background
+daemon. After every Claude Code session, it auto-ingests
+the transcript — files touched, commits, decisions — and
+updates shared state. The next agent reads it and knows
+exactly where to start. Zero manual steps.
 
-    CORE CLI        ████████████████████  done
-      foundation    ██████████████  5/5   CLI skeleton, Commander.js
-      cli-commands  ██████████████  11/11 init · status · claim · complete · next
-                                          sync · log · report · health · ingest · watch
+The problem is not that AI agents are weak.
+It's that humans can't track them when they scale.
 
-    INTELLIGENCE    ████████████████████  done
-      auto-detect   ██████████████  5/5   detects features from git via Claude haiku
-      watch         ██████████████  5/5   daemon auto-ingests sessions, zero steps
-
-    OBSERVABILITY   ████████████████████  done
-      dashboard     ██████████████  5/5   web UI port 4242, auto-refresh 10s
-
-    DISTRIBUTION    ████████████████████  done
-      groundctl.org · @groundctl/cli · MIT License
-
-The killer feature: groundctl watch runs as a background daemon.
-After every Claude Code session, it automatically ingests the
-transcript — files touched, commits, decisions — and regenerates
-PROJECT_STATE.md and AGENTS.md.
-
-The next agent reads them and knows exactly where to start.
-Zero manual steps. Always in sync.
-
-No Anthropic API key required. detect.groundctl.org handles
-feature detection — your project context never leaves your machine
-except for the feature names.
+That's what groundctl solves.
 
 Install:
-    npm install -g @groundctl/cli
-    cd your-project
-    groundctl init
+  npm install -g @groundctl/cli
+  cd your-project
+  groundctl init
 
 Repo: github.com/patrickjoubert/groundctl
 Site: groundctl.org
 
 ---
 
-## Notes (not for posting)
+## Timing
 
-**When to post:** Tuesday or Wednesday 9am PT for best HN traffic
+Post Tuesday or Wednesday 9:00 AM PT
+Reply to every comment within 2 hours
 
-**Reply strategy — first 2 hours:**
-- Reply to every comment
-- Lead with the "built itself using itself" angle early
-- Acknowledge the sql.js limitation proactively
+---
 
-**Expected objections:**
+## Prepared objections
 
-**"Just use a CHANGELOG"**
-→ CHANGELOG is written by humans after the fact.
-  groundctl captures what actually happened, automatically,
-  from Claude Code transcripts.
+**Q: "Just use git"**
+A: git tracks code changes.
+   groundctl tracks what's being built, what's done,
+   and what to build next — across parallel agents.
+   Different problem.
 
-**"Claude Code already has memory"**
-→ Claude Code context resets every session.
-  groundctl gives persistent product state across sessions,
-  agents, and machines.
+**Q: "Claude Code already has memory"**
+A: Claude Code context resets every session.
+   groundctl is persistent across sessions, agents,
+   and machines. It's the shared state layer that
+   Claude Code doesn't have.
 
-**"This is just a wrapper around git log"**
-→ git log tells you what changed.
-  groundctl tells you what's built, what's left,
-  and what to build next — with feature groups,
-  progress tracking, and agent-readable state.
+**Q: "This is just a task manager"**
+A: Task managers are for humans.
+   groundctl is designed for agents to read and write.
+   claim/complete/next is a machine-readable protocol,
+   not a UI for humans to click through.
 
-**"Requires Anthropic API key"**
-→ No. detect.groundctl.org proxies the detection.
-  Zero config. Cloudflare edge, your key is never exposed.
+**Q: "Too many commands"**
+A: Core loop is 3 commands: claim, complete, next.
+   Everything else is optional.
 
-**"Will this work with Cursor/Windsurf/Codex?"**
-→ Codex hooks ship with groundctl today.
-  Cursor and Windsurf support is on the roadmap.
+**Q: "Requires Anthropic API key"**
+A: No. detect.groundctl.org proxies feature detection.
+   Zero config. Your code never leaves your machine.
 
-**"What about privacy?"**
-→ Everything is local by default. SQLite in .groundctl/.
-  Only feature detection calls detect.groundctl.org —
-  and only with git log + file tree, never your code.
+**Q: "Will this work with Cursor/Windsurf?"**
+A: Codex CLI hooks ship today.
+   Cursor/Windsurf on the roadmap.
 
-**"SQLite won't scale to a team"**
-→ Correct. Local-first is intentional — zero setup, zero cloud dependency.
-  Team sync (Litestream replication) is on the roadmap.
-  For now: one developer, one machine, multiple agents. That's the target user.
+**Q: "What about teams / multi-machine?"**
+A: v1 is optimized for solo builders and vibe coders.
+   Multi-machine sync is on the roadmap.
+   SQLite WAL handles concurrent local writes safely.
 
-**"sql.js is slow"**
-→ Acknowledged. better-sqlite3 is 10x faster but doesn't compile on Node 25.
-  Will switch when prebuilds ship. For a CLI tool reading <1000 rows, sql.js
-  is fast enough.
-
-**"How is this different from a todo list?"**
-→ It's machine-writable. The agent reads AND writes it.
-  A todo list can't tell you which agent is working on which feature right now,
-  or block a second agent from starting the same work.
+**Q: "Is this just vibe coding tooling?"**
+A: It started there. But the core problem —
+   humans can't track agents when they scale —
+   applies to any agentic workflow. Solo today,
+   teams and CI/CD tomorrow.
