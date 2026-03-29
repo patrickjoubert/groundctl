@@ -2,111 +2,104 @@
 
 > Always know what to build next.
 
-When Claude Code builds your product across sessions, nobody remembers what was built, what's left, or what's in progress. groundctl fixes that — for you and for your agents.
-
-![groundctl demo](site/demo.svg)
+---
 
 ## The problem
 
-- **You** lose track of what was built across sessions
-- **Your agents** restart from zero every time — no memory of prior work
-- **Multiple agents** can't coordinate — they duplicate work, create conflicts, drift
+You can run 5 AI agents in parallel.
+But you can't keep track of what they're doing.
 
-## What groundctl does
+When you scale agents:
+- work overlaps
+- progress is unclear
+- next steps are guesswork
+- mental load explodes
 
-groundctl is persistent product memory — a local SQLite database that tracks features, sessions, claims, and decisions. Both you and your agents read and write to it. No cloud required.
+---
 
+## The solution
+
+groundctl is a local execution layer that keeps your
+product on track while multiple AI agents build it.
+
+It shows what's being built, what's done, and what to
+do next — so you can move fast without losing control.
+
+---
+
+## Core loop
+
+```bash
+# Agent 1 takes a work unit
+groundctl claim "auth-system"
+
+# Agent 2 takes another — in parallel
+groundctl claim "api-v2"
+
+# No overlap. No confusion.
+
+# What should happen next?
+groundctl next
+→ markets-de (high priority, no blocking deps)
+
+# Agent 1 is done
+groundctl complete "auth-system"
+→ released — ready for next agent
 ```
-┌─────────────────────────────────────────┐
-│  SQLite (source of truth)               │
-│  → features, sessions, claims, decisions│
-├─────────────────────────────────────────┤
-│  Markdown (LLM interface)               │
-│  → PROJECT_STATE.md, AGENTS.md          │
-│  → auto-generated, agents read these    │
-├─────────────────────────────────────────┤
-│  Claiming system                        │
-│  → agents reserve features              │
-│  → no conflicts, no duplicated work     │
-└─────────────────────────────────────────┘
-```
+
+---
 
 ## Install
 
 ```bash
 npm install -g @groundctl/cli
-```
-
-## Quick start
-
-```bash
 cd your-project
 groundctl init
-
-# Add features to track
-groundctl add feature -n "auth-system" -p high
-groundctl add feature -n "user-dashboard" -p medium
-groundctl add feature -n "api-v2" -p high
-
-# See product state
-groundctl status
 ```
 
-```
-  your-project — 0% implemented (0 sessions)
+That's it. `groundctl watch` starts automatically.
+After every Claude Code session, it ingests the
+transcript and updates shared state. Zero manual steps.
 
-  Features  ░░░░░░░░░░░░░░░░░░░░  0/3 done
+---
 
-  Available:
-    ○ auth-system (high)
-    ○ api-v2 (high)
-    ○ user-dashboard (medium)
-```
+## How it works
 
-## Run agents in parallel
+groundctl gives agents a shared execution layer:
+
+| Step | Command | What it does |
+|------|---------|--------------|
+| Reserve | `groundctl claim <work>` | Agent takes ownership |
+| Finish | `groundctl complete <work>` | Marks done, releases |
+| Orient | `groundctl next` | What to build next |
+
+Setup commands:
 
 ```bash
-groundctl claim "auth-system"      # Agent 1
-groundctl claim "api-v2"           # Agent 2
-groundctl claim "user-dashboard"   # Agent 3
-# No conflicts. No duplicated work. No drift.
-
-groundctl complete "auth-system"   # Agent 1 done
-groundctl status                   # See real-time state
+groundctl init              # setup your project
+groundctl status            # product overview
+groundctl plan "goal"       # AI-powered work planning
+groundctl dashboard         # visual cockpit at :4242
 ```
 
-## How it works with Claude Code
+---
 
-groundctl installs hooks that run before and after each session:
+## groundctl watch
 
-- **Pre-session**: regenerates `PROJECT_STATE.md` from SQLite — your agent reads it and knows exactly where the product stands
-- **Post-session**: updates state after work is done
+The daemon that makes everything automatic.
 
-The agent never starts from zero again.
+```bash
+# Runs in background after groundctl init
+# After every Claude Code session:
+✓ Ingests transcript → files, commits, decisions
+✓ Updates shared state
+✓ Regenerates PROJECT_STATE.md + AGENTS.md
+✓ Next agent reads it — knows exactly where to start
+```
 
-## Commands
+Zero manual steps. Always in sync.
 
-| Command | Description |
-|---------|-------------|
-| `groundctl init` | Setup hooks + create database |
-| `groundctl status` | Macro view of product state |
-| `groundctl add feature -n <name> -p <priority>` | Track a new feature |
-| `groundctl claim <feature>` | Reserve a feature for your session |
-| `groundctl complete <feature>` | Mark feature done, release claim |
-| `groundctl next` | Show next available feature |
-| `groundctl sync` | Regenerate markdown from SQLite |
-| `groundctl log` | Session timeline |
-| `groundctl report` | Generate SESSION_REPORT.md |
-| `groundctl health` | Quality score + debt tracker |
-| `groundctl ingest` | Parse transcript → SQLite |
-| `groundctl dashboard` | Web dashboard (3 views) at port 4242 |
-| `groundctl watch` | Auto-ingest daemon — watches for session end |
-| `groundctl plan [description]` | AI-powered feature planning |
-| `groundctl launch <feature>` | Claim + start a Claude Code agent session |
-| `groundctl agents` | List active agents with duration + stale detection |
-| `groundctl stale` | Detect and release stale claims (>2h inactive) |
-| `groundctl doctor` | Diagnose your setup: version, daemon, proxy, groups |
-| `groundctl update feature <name>` | Update feature progress, group, priority |
+---
 
 ## Dashboard
 
@@ -115,72 +108,42 @@ groundctl dashboard
 # Opens http://localhost:4242
 ```
 
-Three views:
-
-**LE PLAN** — The full product map. Every feature as a card, grouped by functional area. Click any card to see description, items, dependencies, and launch an agent. Dependency arrows show what blocks what.
-
-**LE CHANTIER** — The operational view. Active agents with elapsed time and stale detection. Ready-to-launch features with one-click claiming. Blocked features with dependency details. Real-time alerts.
-
-**LES CORPS DE MÉTIER** — Per-group progress. Each group shows its features, completion %, and which pairs of features can run in parallel right now.
-
-Auto-refreshes every 5s. Zero external dependencies — pure Node HTTP server.
-
-## Claiming system
-
-The claiming system is what makes multi-agent coordination possible:
-
-```bash
-# Agent 1 starts working
-$ groundctl claim "markets-uk"
-  ✓ Claimed "markets-uk" → session a1b2c3d4
-
-# Agent 2 tries the same feature
-$ groundctl claim "markets-uk"
-  Feature "markets-uk" is already claimed by session a1b2c3d4
-
-  Available instead:
-    ○ markets-de
-    ○ markets-fr
-```
-
-No race conditions. No duplicated work. SQLite WAL mode handles concurrent writes safely.
-
-## Works with
-
-- **Claude Code** — hooks installed automatically via `groundctl init`
-- **Codex CLI** — hooks included
-- **Any agent** — CLI is agent-agnostic, any tool that can run shell commands works
-
-## Philosophy
-
-- **SQLite is the source of truth** — markdown and JSON are generated outputs
-- **Local-first** — works offline, no cloud required, your data stays on your machine
-- **Zero overhead** — hooks run automatically, no manual tracking
-- **Agent-native** — designed for LLMs to read and write, not just humans
-
-## Meta
-
-groundctl was built using groundctl — 15 sessions, 24 features, 100% implemented.
-
-Sessions S1–S∞ tracked in [PROJECT_STATE.md](PROJECT_STATE.md).
-
-```
-$ groundctl status  # run in this repo
-
-  groundctl — 96% implemented (15 sessions)
-
-  Features  ███████████████████░  24/25 done
-
-  CORE CLI        ████████████████████  6/6 done
-  INTELLIGENCE    ████████████████████  7/7 done
-  OBSERVABILITY   ████████████████████  3/3 done
-  DISTRIBUTION    ████████████████████  6/6 done
-```
-
-## License
-
-MIT
+Three views — **LE PLAN** (full product map, feature cards by group), **LE CHANTIER** (active agents, what's ready to launch, what's blocked), **LES CORPS DE MÉTIER** (per-group progress with parallel run detection).
 
 ---
 
-Created by [Patrick Joubert](https://github.com/patrickjoubert), co-founder of Rippletide.
+## Works with
+
+- **Claude Code** — hooks installed automatically
+- **Codex CLI** — hooks included
+- **Any agent** — CLI is agent-agnostic
+
+---
+
+## Philosophy
+
+The problem is not that AI agents are weak.
+It's that humans can't track them when they scale.
+
+That's what groundctl solves.
+
+- **Local-first** — SQLite, no cloud required
+- **Agent-native** — designed for LLMs to read and write
+- **Zero overhead** — watch daemon, no manual tracking
+- **Open source** — MIT, forever free
+
+---
+
+## Meta
+
+groundctl was built using groundctl.
+15 sessions · 24 features · 100% implemented
+
+View [PROJECT_STATE.md](PROJECT_STATE.md) to see exactly how it was built.
+
+---
+
+MIT License · [groundctl.org](https://groundctl.org)
+
+Created by [Patrick Joubert](https://github.com/patrickjoubert),
+co-founder of [Rippletide](https://rippletide.com).
