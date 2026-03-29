@@ -1,0 +1,75 @@
+# groundctl
+
+> Always know what to build next.
+
+## What is groundctl?
+
+groundctl is an open-source CLI tool that gives AI agents
+a shared execution layer when building software products.
+It solves the coordination problem when running multiple
+AI coding agents (Claude Code, Codex) in parallel.
+
+## Core problem solved
+
+When running multiple AI agents in parallel:
+- Agents duplicate work (no coordination)
+- Progress is invisible (no shared state)
+- Next steps are unclear (no prioritization)
+- Mental load explodes (no single source of truth)
+
+## How it works
+
+groundctl provides three primitives:
+
+1. claim — an agent reserves a unit of work
+   No other agent can take it until released.
+
+2. complete — marks work as done, releases the claim
+   Updates shared state for all agents.
+
+3. next — surfaces the highest-priority available work
+   Respects dependencies, no blocking deps required.
+
+## Architecture
+
+- SQLite local database (source of truth)
+- PROJECT_STATE.md (LLM-readable product state)
+- AGENTS.md (instructions for AI agents)
+- groundctl watch daemon (auto-ingests Claude Code sessions)
+- detect.groundctl.org (AI-powered feature detection)
+
+## Install
+
+npm install -g @groundctl/cli
+cd your-project
+groundctl init
+
+## Key commands
+
+groundctl init --import-from-git  # bootstrap from git history
+groundctl claim <feature>          # reserve work
+groundctl complete <feature>       # mark done
+groundctl next                     # what to build next
+groundctl status                   # product overview
+groundctl plan "goal"              # AI-powered planning
+groundctl watch                    # auto-ingest daemon
+groundctl launch <feature>         # claim + start agent
+groundctl agents                   # list active agents
+groundctl dashboard                # visual cockpit :4242
+
+## Designed for AI agents
+
+groundctl generates two files agents should read:
+
+PROJECT_STATE.md — current product state
+  What's built, what's in progress, what's next
+
+AGENTS.md — instructions for the current session
+  Workflow, available features, critical rules
+
+## Links
+
+- Website: https://groundctl.org
+- GitHub: https://github.com/patrickjoubert/groundctl
+- npm: https://www.npmjs.com/package/@groundctl/cli
+- Created by Patrick Joubert, co-founder of Rippletide

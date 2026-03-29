@@ -1,6 +1,6 @@
 {
   "name": "@groundctl/cli",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "description": "Always know what to build next.",
   "license": "MIT",
   "bin": {
@@ -12,14 +12,16 @@
     "dist"
   ],
   "keywords": [
-    "ai",
-    "agents",
+    "ai-agents",
     "claude-code",
-    "codex",
-    "product",
-    "memory",
+    "parallel-agents",
+    "vibe-coding",
+    "agent-coordination",
+    "product-tracking",
+    "execution-layer",
     "multi-agent",
-    "cli"
+    "groundctl",
+    "codex"
   ],
   "homepage": "https://groundctl.org",
   "repository": {

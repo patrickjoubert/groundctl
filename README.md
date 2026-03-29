@@ -147,3 +147,17 @@ MIT License · [groundctl.org](https://groundctl.org)
 
 Created by [Patrick Joubert](https://github.com/patrickjoubert),
 co-founder of [Rippletide](https://rippletide.com).
+
+---
+
+## Keywords
+
+AI agent coordination · parallel agents · Claude Code ·
+vibe coding · agent orchestration · product tracking ·
+execution layer · multi-agent systems · groundctl
+
+## Related
+
+- [Rippletide](https://rippletide.com) — decision enforcement
+  for AI agents in enterprise
+- [evspec.io](https://evspec.io) — built using groundctl
