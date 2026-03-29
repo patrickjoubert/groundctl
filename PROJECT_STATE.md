@@ -1,5 +1,5 @@
 # groundctl — Product State
-Last updated: 2026-03-29 | Last session: 883da902 | Progress: 100%
+Last updated: 2026-03-29 | Last session: 44e2b8a9 | Progress: 100%
 
 ## What's been built
 - foundation-cli
@@ -26,6 +26,8 @@ Last updated: 2026-03-29 | Last session: 883da902 | Progress: 100%
 - groundctl-plan (completed 2026-03-29)
 - feature/dashboard-v2 (completed 2026-03-29)
 - feature/dashboard-v3 (completed 2026-03-29)
+- feature/repo-cleanup (completed 2026-03-29)
+- feature/repositioning (completed 2026-03-29)
 
 ## Architecture log
 - auto: all commits were in a short time span. The file tracking is solid. Now P5 — groundctl tracks itself
@@ -35,6 +37,8 @@ Last updated: 2026-03-29 | Last session: 883da902 | Progress: 100%
 - auto: detection, customisation
 
 ## Recent sessions
+- 44e2b8a9 (claude-code, active)
+- 3dac056d (claude-code, active)
 - 883da902 (claude-code, active)
 - fe27aa3d (claude-code, active)
 - 8c19f5df (claude-code, active)
@@ -43,6 +47,4 @@ Last updated: 2026-03-29 | Last session: 883da902 | Progress: 100%
 - c9f03151 (claude-code, active)
 - 9c8d5faa (claude-code, active)
 - 3c87b088 (claude-code, active)
-- c42ab6f8 (claude-code, active)
-- S3 (claude-code, active)
 
