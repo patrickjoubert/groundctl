@@ -1,6 +1,6 @@
-# Show HN: groundctl – product memory for AI agent builders (MIT)
+# Show HN: groundctl – always know what to build next (MIT)
 
-**Title:** Show HN: groundctl – product memory for AI agent builders (MIT)
+**Title:** Show HN: groundctl – always know what to build next (MIT)
 
 **URL:** https://groundctl.org
 

@@ -1,6 +1,6 @@
 # groundctl
 
-> The shared memory your agents and you actually need.
+> Always know what to build next.
 
 When Claude Code builds your product across sessions, nobody remembers what was built, what's left, or what's in progress. groundctl fixes that — for you and for your agents.
 
