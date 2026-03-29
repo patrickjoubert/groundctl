@@ -1,3 +1,9 @@
+export interface ParsedPlannedFeature {
+  name:      string; // kebab-case, max 6 words
+  rawText:   string; // original line from transcript
+  confidence: "high" | "medium" | "low";
+}
+
 export interface ParsedSession {
   sessionId: string;
   startedAt: string;
@@ -5,6 +11,7 @@ export interface ParsedSession {
   filesModified: ParsedFile[];
   commits: ParsedCommit[];
   decisions: ParsedDecision[];
+  plannedFeatures: ParsedPlannedFeature[];
   summary: string;
   agent: "claude-code";
 }

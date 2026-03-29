@@ -101,6 +101,20 @@ export function applySchema(db: Database): void {
     )
   `);
 
+  // ── planned_features table (plan detection from transcripts) ────────────
+  db.run(`
+    CREATE TABLE IF NOT EXISTS planned_features (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id  TEXT NOT NULL REFERENCES sessions(id),
+      name        TEXT NOT NULL,
+      raw_text    TEXT,
+      confidence  TEXT NOT NULL DEFAULT 'medium',
+      imported    INTEGER NOT NULL DEFAULT 0,
+      created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `);
+  db.run("CREATE INDEX IF NOT EXISTS idx_planned_session ON planned_features(session_id)");
+
   // Migrations: add columns (no-op if already present)
   const tryAlter = (sql: string) => { try { db.run(sql); } catch { /* already exists */ } };
   tryAlter("ALTER TABLE features ADD COLUMN progress_done  INTEGER");

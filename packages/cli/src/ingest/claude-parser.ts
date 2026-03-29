@@ -4,12 +4,61 @@ import type {
   ParsedFile,
   ParsedCommit,
   ParsedDecision,
+  ParsedPlannedFeature,
   TranscriptLine,
   ToolUseBlock,
   ToolResultBlock,
   TextBlock,
 } from "./types.js";
 
+// ── Plan detection ───────────────────────────────────────────────────────────
+// Matches common preambles Claude uses before listing steps
+const PLAN_HEADER_RE = /(?:here'?s?\s+(?:my\s+)?(?:plan|approach)[:\s]|i'?ll?\s+(?:start|begin)\s+by|i'?ll?\s+break\s+this\s+into|my\s+approach\s*:|here'?s?\s+how\s+i'?ll?|let\s+me\s+plan\s+this|first,?\s+i'?ll?\s+[\w].*(?:\n.*){2,}|step[-\s]*1[.):]\s)/i;
+
+/**
+ * Extract planned steps from a Claude plan message.
+ * Returns kebab-case feature names derived from numbered/bulleted list items.
+ */
+function extractPlannedFeatures(text: string): ParsedPlannedFeature[] {
+  if (!PLAN_HEADER_RE.test(text)) return [];
+
+  // Find header position, then look for the list that follows
+  const headerMatch = text.match(PLAN_HEADER_RE);
+  if (!headerMatch) return [];
+  const afterHeader = text.slice(headerMatch.index!);
+
+  // Match: "1. Something", "Step 1: Something", "- Something", "• Something"
+  const itemRe = /(?:^|\n)\s*(?:(?:\d+|Step\s*\d+)[.):\s]+|[-•*]\s+)([^\n]{4,80})/gi;
+  const seen = new Set<string>();
+  const features: ParsedPlannedFeature[] = [];
+
+  for (const m of afterHeader.matchAll(itemRe)) {
+    const raw = m[1].trim();
+    // Skip items that look like full sentences (too long = probably prose)
+    const wordCount = raw.split(/\s+/).length;
+    if (wordCount > 12) continue;
+
+    // Convert to kebab-case, max 6 words
+    const name = raw
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, " ")
+      .trim()
+      .split(/\s+/)
+      .slice(0, 6)
+      .join("-")
+      .replace(/-+/g, "-")
+      .replace(/^-|-$/g, "");
+
+    if (name.length < 2 || seen.has(name)) continue;
+    seen.add(name);
+    features.push({ name, rawText: raw, confidence: "high" });
+    if (features.length >= 10) break;
+  }
+
+  return features;
+}
+
+// ── Decision detection ───────────────────────────────────────────────────────
 // Decision detection patterns in assistant text
 const DECISION_PATTERNS = [
   /\bI(?:'m going to| decided| chose| picked| went with| opted for)\b(.{10,120})/i,
@@ -78,6 +127,7 @@ export function parseTranscript(
   const filesMap = new Map<string, ParsedFile>();
   const commits: ParsedCommit[] = [];
   const decisions: ParsedDecision[] = [];
+  const plannedFeatureMap = new Map<string, ParsedPlannedFeature>();
   let lastAssistantText = "";
 
   for (const entry of parsed) {
@@ -90,6 +140,12 @@ export function parseTranscript(
         if (text.length > 20) {
           lastAssistantText = text;
           extractDecisions(text, decisions);
+          // Detect plan steps (only from longer messages — short ones are noise)
+          if (text.length > 80) {
+            for (const pf of extractPlannedFeatures(text)) {
+              if (!plannedFeatureMap.has(pf.name)) plannedFeatureMap.set(pf.name, pf);
+            }
+          }
         }
       }
 
@@ -182,6 +238,7 @@ export function parseTranscript(
     filesModified: Array.from(filesMap.values()),
     commits,
     decisions: uniqueDecisions,
+    plannedFeatures: Array.from(plannedFeatureMap.values()),
     summary,
     agent: "claude-code",
   };

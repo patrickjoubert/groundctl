@@ -16,6 +16,12 @@ export async function nextCommand(): Promise<void> {
      FROM features f
      WHERE f.status = 'pending'
      AND f.id NOT IN (SELECT feature_id FROM claims WHERE released_at IS NULL)
+     AND f.id NOT IN (
+       SELECT d.feature_id
+       FROM feature_dependencies d
+       JOIN features dep ON dep.id = d.depends_on_id
+       WHERE dep.status != 'done' AND d.type = 'blocks'
+     )
      ORDER BY
        CASE f.priority
          WHEN 'critical' THEN 0

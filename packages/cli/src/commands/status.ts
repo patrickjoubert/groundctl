@@ -2,6 +2,13 @@ import chalk from "chalk";
 import { openDb, closeDb } from "../storage/db.js";
 import { query, queryOne } from "../storage/query.js";
 
+interface DepRow {
+  feature_id: string;
+  dep_id: string;
+  dep_name: string;
+  dep_status: string;
+}
+
 // ── Constants ────────────────────────────────────────────────────────────────
 
 const AGG_BAR_W  = 20;
@@ -61,6 +68,23 @@ interface FeatureRow {
 }
 
 interface GroupRow { id: number; name: string; label: string; order_index: number; }
+
+// ── Dependency helpers ────────────────────────────────────────────────────────
+
+function buildDepsMap(deps: DepRow[]): Map<string, DepRow[]> {
+  const map = new Map<string, DepRow[]>();
+  for (const d of deps) {
+    if (!map.has(d.feature_id)) map.set(d.feature_id, []);
+    map.get(d.feature_id)!.push(d);
+  }
+  return map;
+}
+
+function unmetDeps(featureId: string, depsMap: Map<string, DepRow[]>): string[] {
+  return (depsMap.get(featureId) ?? [])
+    .filter((d) => d.dep_status !== "done")
+    .map((d) => d.dep_name);
+}
 
 // ── Group summary view (default) ─────────────────────────────────────────────
 
@@ -136,7 +160,8 @@ function renderDetail(
   features: FeatureRow[],
   groups: GroupRow[],
   sessionCount: number,
-  projectName: string
+  projectName: string,
+  depsMap: Map<string, DepRow[]>
 ): void {
   const total = features.length;
   const done  = features.filter((f) => f.status === "done").length;
@@ -174,7 +199,13 @@ function renderDetail(
       claimed = chalk.yellow(` → ${f.claimed_session}${el ? ` (${el})` : ""}`);
     }
 
-    process.stdout.write(`${indent}${iconCh(icon)} ${nameCh(nameRaw)} ${bar}  ${prog}${descStr}${claimed}\n`);
+    // Dependency annotation: show unmet blocking deps
+    const waiting = unmetDeps(f.id, depsMap);
+    const needsStr = waiting.length > 0 && !isDone
+      ? chalk.red(`  (needs: ${waiting.slice(0, 3).join(", ")})`)
+      : "";
+
+    process.stdout.write(`${indent}${iconCh(icon)} ${nameCh(nameRaw)} ${bar}  ${prog}${descStr}${claimed}${needsStr}\n`);
 
     if (f.items) {
       for (const line of wrapItems(f.items, itemsMaxW)) {
@@ -218,7 +249,12 @@ function renderDetail(
 
 // ── Flat view (no groups) ────────────────────────────────────────────────────
 
-function renderFlat(features: FeatureRow[], sessionCount: number, projectName: string): void {
+function renderFlat(
+  features: FeatureRow[],
+  sessionCount: number,
+  projectName: string,
+  depsMap: Map<string, DepRow[]>
+): void {
   const total   = features.length;
   const done    = features.filter((f) => f.status === "done").length;
   const inProg  = features.filter((f) => f.status === "in_progress").length;
@@ -261,7 +297,12 @@ function renderFlat(features: FeatureRow[], sessionCount: number, projectName: s
       claimed = chalk.yellow(` → ${f.claimed_session}${el ? ` (${el})` : ""}`);
     }
 
-    console.log(`  ${iconCh(icon)} ${nameCh(nameRaw)} ${bar}  ${prog}${descStr}${claimed}`);
+    const waiting = unmetDeps(f.id, depsMap);
+    const needsStr = waiting.length > 0 && !isDone
+      ? chalk.red(`  (needs: ${waiting.slice(0, 3).join(", ")})`)
+      : "";
+
+    console.log(`  ${iconCh(icon)} ${nameCh(nameRaw)} ${bar}  ${prog}${descStr}${claimed}${needsStr}`);
 
     if (f.items) {
       for (const line of wrapItems(f.items, itemsMaxW)) {
@@ -316,6 +357,16 @@ export async function statusCommand(opts?: { detail?: boolean; all?: boolean }):
     db, "SELECT COUNT(*) as count FROM sessions"
   )?.count ?? 0;
 
+  // Load dependencies for visual annotation
+  const rawDeps = query<DepRow>(
+    db,
+    `SELECT d.feature_id, d.depends_on_id as dep_id, f.name as dep_name, f.status as dep_status
+     FROM feature_dependencies d
+     JOIN features f ON f.id = d.depends_on_id
+     WHERE d.type = 'blocks'`
+  );
+  const depsMap = buildDepsMap(rawDeps);
+
   closeDb();
 
   if (features.length === 0) {
@@ -329,10 +380,10 @@ export async function statusCommand(opts?: { detail?: boolean; all?: boolean }):
   const hasGroups = groups.length > 0 && features.some((f) => f.group_id != null);
 
   if (opts?.detail || opts?.all) {
-    renderDetail(features, groups, sessionCount, projectName);
+    renderDetail(features, groups, sessionCount, projectName, depsMap);
   } else if (hasGroups) {
     renderGroupSummary(features, groups, sessionCount, projectName);
   } else {
-    renderFlat(features, sessionCount, projectName);
+    renderFlat(features, sessionCount, projectName, depsMap);
   }
 }

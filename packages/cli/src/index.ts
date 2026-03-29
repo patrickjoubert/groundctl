@@ -16,6 +16,7 @@ import { dashboardCommand } from "./commands/dashboard.js";
 import { watchCommand } from "./commands/watch.js";
 import { updateCommand } from "./commands/update.js";
 import { doctorCommand } from "./commands/doctor.js";
+import { planCommand } from "./commands/plan.js";
 import chalk from "chalk";
 
 const require = createRequire(import.meta.url);
@@ -153,6 +154,18 @@ program
   .command("doctor")
   .description("Check groundctl health: version, daemon, proxy, groups")
   .action(doctorCommand);
+
+program
+  .command("plan [description]")
+  .description("Plan features for a product goal (AI-powered)")
+  .option("--replan", "Suggest new features based on what's already built")
+  .option("--group <name>", "Assign planned features to a group")
+  .action((description, opts) =>
+    planCommand(description, {
+      replan: opts.replan,
+      group:  opts.group,
+    })
+  );
 
 // ── Unknown command handler ──────────────────────────────────────────────────
 program.on("command:*", (operands: string[]) => {

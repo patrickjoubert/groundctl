@@ -1,11 +1,14 @@
 import { existsSync, readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { homedir } from "node:os";
+import { createInterface } from "node:readline";
 import chalk from "chalk";
+import type { Database } from "sql.js";
 import { openDb, closeDb, saveDb } from "../storage/db.js";
 import { parseTranscript } from "../ingest/claude-parser.js";
 import { syncCommand } from "./sync.js";
 import { queryOne } from "../storage/query.js";
+import type { ParsedPlannedFeature } from "../ingest/types.js";
 
 interface IngestOptions {
   source: string;
@@ -161,8 +164,84 @@ export async function ingestCommand(options: IngestOptions): Promise<void> {
     }
   }
 
+  // ── Planned features from Claude's plan ─────────────────────────────────
+  if (parsed.plannedFeatures.length > 0) {
+    const db2 = await openDb();
+    // Store in planned_features table regardless of interactive mode
+    for (const pf of parsed.plannedFeatures) {
+      const dup = queryOne(db2,
+        "SELECT id FROM planned_features WHERE session_id = ? AND name = ?",
+        [sessionId, pf.name]
+      );
+      if (!dup) {
+        db2.run(
+          "INSERT INTO planned_features (session_id, name, raw_text, confidence) VALUES (?, ?, ?, ?)",
+          [sessionId, pf.name, pf.rawText, pf.confidence]
+        );
+      }
+    }
+    saveDb();
+
+    // Only prompt when running interactively
+    if (process.stdout.isTTY) {
+      await promptPlannedFeatures(db2, sessionId, parsed.plannedFeatures);
+    } else {
+      console.log(chalk.gray(
+        `  ↳ ${parsed.plannedFeatures.length} planned features detected — run groundctl ingest interactively to import`
+      ));
+    }
+    closeDb();
+  }
+
   if (!options.noSync) {
     console.log("");
     await syncCommand();
   }
+}
+
+// ── Planned features prompt ───────────────────────────────────────────────────
+
+function readLine(prompt: string): Promise<string> {
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  return new Promise((resolve) => {
+    rl.question(prompt, (a) => { rl.close(); resolve(a.trim().toLowerCase()); });
+  });
+}
+
+async function promptPlannedFeatures(
+  db: Database,
+  sessionId: string,
+  features: ParsedPlannedFeature[]
+): Promise<void> {
+  console.log(chalk.bold(`\n  Detected ${features.length} planned features from Claude's plan:`));
+  console.log("");
+  for (const f of features) {
+    console.log(chalk.gray(`  ○ ${f.name.padEnd(28)}`) + chalk.dim(`${f.rawText.slice(0, 48)}`));
+  }
+  console.log("");
+
+  const answer = await readLine(chalk.bold("  Import as features? ") + chalk.gray("[y/n] "));
+  if (answer !== "y" && answer !== "yes") {
+    console.log(chalk.gray("  Skipped.\n"));
+    return;
+  }
+
+  let imported = 0;
+  for (const pf of features) {
+    const exists = queryOne(db, "SELECT id FROM features WHERE id = ?", [pf.name]);
+    if (!exists) {
+      db.run(
+        "INSERT INTO features (id, name, status, priority, description) VALUES (?, ?, ?, ?, ?)",
+        [pf.name, pf.name, "pending", "medium", `Planned: ${pf.rawText.slice(0, 100)}`]
+      );
+      imported++;
+    }
+  }
+  // Mark as imported in planned_features
+  db.run(
+    "UPDATE planned_features SET imported = 1 WHERE session_id = ?",
+    [sessionId]
+  );
+  saveDb();
+  console.log(chalk.green(`  ✓ ${imported} features imported\n`));
 }

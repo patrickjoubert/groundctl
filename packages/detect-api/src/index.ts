@@ -139,6 +139,63 @@ export default {
       return json({ status: "ok", service: "groundctl-detect", model: MODEL });
     }
 
+    // POST /plan — break a product description into atomic features
+    if (url.pathname === "/plan" && request.method === "POST") {
+      const ua = request.headers.get("user-agent") ?? "";
+      if (!ua.toLowerCase().includes("groundctl")) {
+        return json({ error: "Forbidden: set User-Agent to include 'groundctl'" }, 403);
+      }
+      const ip = (
+        request.headers.get("cf-connecting-ip") ??
+        request.headers.get("x-forwarded-for") ??
+        "unknown"
+      ).split(",")[0].trim();
+      const { allowed, remaining } = await checkRateLimit(env, ip);
+      if (!allowed) return json({ error: `Rate limit exceeded (${RATE_LIMIT_PER_DAY}/day per IP)` }, 429);
+
+      let planBody: { prompt?: string };
+      try { planBody = await request.json() as { prompt?: string }; }
+      catch { return json({ error: "Invalid JSON body" }, 400); }
+
+      const userPrompt = planBody.prompt ?? "";
+      if (!userPrompt.trim()) return json({ error: "Missing 'prompt' field" }, 400);
+
+      const systemPrompt = "You are a product architect. Break product goals into atomic, session-sized features with clear dependencies.";
+      try {
+        const response = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: {
+            "x-api-key": env.ANTHROPIC_API_KEY,
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            model: MODEL,
+            max_tokens: 1500,
+            system: systemPrompt,
+            messages: [{ role: "user", content: userPrompt }],
+          }),
+        });
+        const msg = await response.json() as ClaudeMessage;
+        if (msg.error) throw new Error(msg.error.message);
+        const textBlock = (msg.content ?? []).find((b) => b.type === "text");
+        if (!textBlock) throw new Error("Empty response from model");
+        const text = textBlock.text.replace(/^```[^\n]*\n?/, "").replace(/\n?```$/, "").trim();
+        const match = text.match(/\{[\s\S]*\}/);
+        if (!match) throw new Error("No JSON in model response");
+        const parsed = JSON.parse(match[0]) as { features?: unknown };
+        return new Response(JSON.stringify({ features: parsed.features ?? [] }), {
+          headers: {
+            "content-type": "application/json; charset=utf-8",
+            "x-rate-limit-remaining": String(remaining),
+            ...CORS_HEADERS,
+          },
+        });
+      } catch (err) {
+        return json({ error: `Planning failed: ${(err as Error).message}` }, 500);
+      }
+    }
+
     // Only POST /detect from here
     if (url.pathname !== "/detect" || request.method !== "POST") {
       return json({ error: "Not found" }, 404);
