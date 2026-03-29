@@ -1,6 +1,6 @@
-# Show HN: groundctl – always know what to build next (MIT)
+# Show HN: groundctl – Always know what to build next (MIT)
 
-**Title:** Show HN: groundctl – always know what to build next (MIT)
+**Title:** Show HN: groundctl – Always know what to build next (MIT)
 
 **URL:** https://groundctl.org
 
@@ -8,40 +8,55 @@
 
 ## Body
 
-I've been building evspec.io (EV specs API for Europe) using only
-Claude Code over 7 sessions. After session 4, I had no idea what
-had been built, what was left, or what decisions had been made.
+I built an EV specs API (evspec.io) using only Claude Code
+across 7 sessions. After session 3, I had no idea what had
+been built, what was left, or why certain decisions were made.
 
-Jira and Linear assume a human is tracking everything. They don't
-know about sessions, transcripts, or parallel agents.
+Jira assumes a human is tracking everything.
+It doesn't know about sessions, transcripts, or parallel agents.
 
-So I built groundctl — a CLI that gives Claude Code (and Codex)
-a persistent product memory:
+So I built groundctl — and used it to build itself.
 
-    $ groundctl status        → where is my product right now
-    $ groundctl claim <feat>  → reserve a feature for this session
-    $ groundctl next          → what should the agent build next
-    $ groundctl health        → quality score + accumulated debt
-    $ groundctl dashboard     → web view at port 4242
+    $ groundctl status --detail
 
-The interesting part: it parses Claude Code transcripts
-automatically after each session — files touched, commits,
-decisions made — and writes them to a local SQLite db.
-Then generates PROJECT_STATE.md and AGENTS.md that the next
-agent reads at session start.
+    groundctl — 100% implemented (11 sessions)
 
-The meta part: groundctl was built using groundctl.
-S1–S4 tracked in its own PROJECT_STATE.md.
-Current state: 14/15 features done (93%).
+    Features  ████████████████████  21/21 done
 
-Install: npm install -g @groundctl/cli
+    CORE CLI        ████████████████████  done
+      foundation    ██████████████  5/5   CLI skeleton, Commander.js
+      cli-commands  ██████████████  11/11 init · status · claim · complete · next
+                                          sync · log · report · health · ingest · watch
+
+    INTELLIGENCE    ████████████████████  done
+      auto-detect   ██████████████  5/5   detects features from git via Claude haiku
+      watch         ██████████████  5/5   daemon auto-ingests sessions, zero steps
+
+    OBSERVABILITY   ████████████████████  done
+      dashboard     ██████████████  5/5   web UI port 4242, auto-refresh 10s
+
+    DISTRIBUTION    ████████████████████  done
+      groundctl.org · @groundctl/cli · MIT License
+
+The killer feature: groundctl watch runs as a background daemon.
+After every Claude Code session, it automatically ingests the
+transcript — files touched, commits, decisions — and regenerates
+PROJECT_STATE.md and AGENTS.md.
+
+The next agent reads them and knows exactly where to start.
+Zero manual steps. Always in sync.
+
+No Anthropic API key required. detect.groundctl.org handles
+feature detection — your project context never leaves your machine
+except for the feature names.
+
+Install:
+    npm install -g @groundctl/cli
+    cd your-project
+    groundctl init
+
 Repo: github.com/patrickjoubert/groundctl
-Docs: groundctl.org
-
-Would love feedback on:
-- The transcript parsing heuristics (regex today, wondering about LLM pass)
-- The claiming system design for distributed teams (SQLite works locally, thinking about sync for team use)
-- Whether the health score metrics are the right ones
+Site: groundctl.org
 
 ---
 
@@ -56,20 +71,38 @@ Would love feedback on:
 
 **Expected objections:**
 
-**"Why not just use a CLAUDE.md file?"**
-→ CLAUDE.md is static — you write it, it doesn't update. groundctl is live state
-  written automatically after every session. The agent updates it, not you.
-  Also: claiming system, multi-agent coordination, health score — none of that
-  fits in a static file.
+**"Just use a CHANGELOG"**
+→ CHANGELOG is written by humans after the fact.
+  groundctl captures what actually happened, automatically,
+  from Claude Code transcripts.
 
-**"How is this different from a todo list?"**
-→ It's machine-writable. The agent reads AND writes it.
-  A todo list can't tell you which agent is working on which feature right now,
-  or block a second agent from starting the same work.
+**"Claude Code already has memory"**
+→ Claude Code context resets every session.
+  groundctl gives persistent product state across sessions,
+  agents, and machines.
+
+**"This is just a wrapper around git log"**
+→ git log tells you what changed.
+  groundctl tells you what's built, what's left,
+  and what to build next — with feature groups,
+  progress tracking, and agent-readable state.
+
+**"Requires Anthropic API key"**
+→ No. detect.groundctl.org proxies the detection.
+  Zero config. Cloudflare edge, your key is never exposed.
+
+**"Will this work with Cursor/Windsurf/Codex?"**
+→ Codex hooks ship with groundctl today.
+  Cursor and Windsurf support is on the roadmap.
+
+**"What about privacy?"**
+→ Everything is local by default. SQLite in .groundctl/.
+  Only feature detection calls detect.groundctl.org —
+  and only with git log + file tree, never your code.
 
 **"SQLite won't scale to a team"**
 → Correct. Local-first is intentional — zero setup, zero cloud dependency.
-  Team sync (SQLite on a shared volume or Litestream replication) is on the roadmap.
+  Team sync (Litestream replication) is on the roadmap.
   For now: one developer, one machine, multiple agents. That's the target user.
 
 **"sql.js is slow"**
@@ -77,13 +110,7 @@ Would love feedback on:
   Will switch when prebuilds ship. For a CLI tool reading <1000 rows, sql.js
   is fast enough.
 
-**"Why not just read git log?"**
-→ Git tells you what changed. groundctl tells you what's left to build,
-  who's working on what right now, and what decisions were made and why.
-  groundctl uses git log for import but the live claiming system and
-  decision tracking are what git can't give you.
-
-**"LLM call for decisions instead of regex?"**
-→ This is genuinely interesting. Regex is offline, instant, free.
-  An LLM pass would be slower and add a dependency but would catch more nuance.
-  Plan: make it opt-in with --enrich flag in a future version.
+**"How is this different from a todo list?"**
+→ It's machine-writable. The agent reads AND writes it.
+  A todo list can't tell you which agent is working on which feature right now,
+  or block a second agent from starting the same work.

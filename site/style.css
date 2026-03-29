@@ -172,6 +172,7 @@ main {
 .claimed { color: var(--yellow); }
 .success { color: var(--green); }
 .comment { color: var(--text-dim); }
+.grp-header { color: var(--text); font-weight: bold; }
 
 /* ── USE CASES ────────────────────────────────── */
 
@@ -323,6 +324,47 @@ main {
 .cmd-row span {
   font-size: 0.85rem;
   color: var(--text-dim);
+}
+
+/* ── META BUILT ──────────────────────────────── */
+
+.meta-built {
+  padding: 56px 0;
+  text-align: center;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 56px;
+}
+
+.meta-built h2 {
+  font-family: var(--mono);
+  font-size: 1.4rem;
+  color: var(--text);
+  margin-bottom: 12px;
+}
+
+.meta-built p {
+  color: var(--text-mid);
+  margin-bottom: 8px;
+}
+
+.meta-stats {
+  display: flex;
+  justify-content: center;
+  gap: 32px;
+  margin: 20px 0;
+}
+
+.meta-stats span {
+  font-family: var(--mono);
+  font-size: 1.1rem;
+  color: var(--green);
+  font-weight: bold;
+}
+
+.meta-desc {
+  font-size: 0.9rem;
+  line-height: 1.7;
 }
 
 /* ── FOOTER ───────────────────────────────────── */

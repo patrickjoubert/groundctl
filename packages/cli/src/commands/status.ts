@@ -7,7 +7,7 @@ import { query, queryOne } from "../storage/query.js";
 const AGG_BAR_W  = 20;
 const GRP_BAR_W  = 20;
 const FEAT_BAR_W = 14;
-const NAME_W     = 22;
+const NAME_W     = 26;
 const PROG_W     = 6;
 
 // ── Bar helpers ──────────────────────────────────────────────────────────────
@@ -201,12 +201,18 @@ function renderDetail(
     console.log("");
   }
 
-  // Ungrouped
+  // Ungrouped features — only show "OTHER" label when there are real groups too
   const ungrouped = features.filter((f) => f.group_id == null);
   if (ungrouped.length > 0) {
-    console.log(chalk.bold.gray("  OTHER"));
-    for (const f of ungrouped) renderFeature(f, "    ");
-    console.log("");
+    if (groups.length > 0) {
+      console.log(chalk.bold.gray("  OTHER"));
+      for (const f of ungrouped) renderFeature(f, "    ");
+      console.log("");
+    } else {
+      // No groups at all — render flat without header
+      for (const f of ungrouped) renderFeature(f, "  ");
+      console.log("");
+    }
   }
 }
 
