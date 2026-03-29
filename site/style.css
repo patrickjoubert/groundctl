@@ -5,9 +5,9 @@
   --bg2: #111;
   --bg3: #1a1a1a;
   --border: #222;
-  --text: #e0e0e0;
-  --text-dim: #666;
-  --text-mid: #999;
+  --text: #e8e8e8;
+  --text-dim: #999;
+  --text-mid: #aaaaaa;
   --green: #4ade80;
   --yellow: #facc15;
   --blue: #60a5fa;
@@ -19,13 +19,13 @@
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-html { font-size: 16px; scroll-behavior: smooth; }
+html { font-size: 18px; scroll-behavior: smooth; }
 
 body {
   background: var(--bg);
   color: var(--text);
   font-family: var(--sans);
-  line-height: 1.6;
+  line-height: 1.7;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -133,7 +133,7 @@ main {
 
 .problem {
   text-align: center;
-  padding: 40px 0 56px;
+  padding: 40px 0 80px;
   border-top: 1px solid var(--border);
 }
 
@@ -148,7 +148,7 @@ main {
 /* ── DEMO TERMINAL ────────────────────────────── */
 
 .demo {
-  margin-bottom: 72px;
+  margin-bottom: 80px;
 }
 
 .terminal {
@@ -177,7 +177,7 @@ main {
 /* ── USE CASES ────────────────────────────────── */
 
 .use-cases {
-  margin-bottom: 72px;
+  margin-bottom: 80px;
 }
 
 .cards {
@@ -234,7 +234,7 @@ main {
 /* ── HOW IT WORKS ─────────────────────────────── */
 
 .how-it-works {
-  margin-bottom: 72px;
+  margin-bottom: 80px;
 }
 
 .how-it-works h2,
@@ -243,7 +243,7 @@ main {
   font-weight: 600;
   color: var(--text-dim);
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.14em;
   font-family: var(--mono);
   margin-bottom: 28px;
 }
@@ -285,13 +285,13 @@ main {
 .step p {
   font-size: 0.875rem;
   color: var(--text-mid);
-  line-height: 1.6;
+  line-height: 1.7;
 }
 
 /* ── INSTALL ──────────────────────────────────── */
 
 .install {
-  margin-bottom: 72px;
+  margin-bottom: 80px;
 }
 
 .commands-grid {
@@ -329,11 +329,11 @@ main {
 /* ── META BUILT ──────────────────────────────── */
 
 .meta-built {
-  padding: 56px 0;
+  padding: 80px 0;
   text-align: center;
   border-top: 1px solid var(--border);
   border-bottom: 1px solid var(--border);
-  margin-bottom: 56px;
+  margin-bottom: 80px;
 }
 
 .meta-built h2 {
