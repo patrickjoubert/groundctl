@@ -16,27 +16,35 @@ interface IngestOptions {
 }
 
 /**
+ * Claude Code encodes project paths as directory names by replacing every
+ * non-alphanumeric character with "-".
+ * e.g. /Users/patrick/EVSpec.io → -Users-patrick-EVSpec-io
+ */
+function claudeEncode(p: string): string {
+  return p.replace(/[^a-zA-Z0-9]/g, "-");
+}
+
+/**
  * Find the most recent transcript file for the current project.
  */
 function findLatestTranscript(projectPath: string): string | null {
   const projectsDir = join(homedir(), ".claude", "projects");
   if (!existsSync(projectsDir)) return null;
 
-  // Convert path to Claude project dir name (replaces / with -)
-  const projectKey = projectPath.replace(/\//g, "-");
-
   let transcriptDir: string | null = null;
 
-  // Direct match
+  // 1. Exact encoded match
+  const projectKey = claudeEncode(projectPath);
   const directMatch = join(projectsDir, projectKey);
   if (existsSync(directMatch)) {
     transcriptDir = directMatch;
   } else {
-    // Fuzzy: find dir that ends with the project folder name
+    // 2. Fuzzy: find dir that ends with the encoded project folder name
     const projectName = projectPath.split("/").pop() ?? "";
+    const encodedName = claudeEncode(projectName);
     const dirs = readdirSync(projectsDir);
     for (const d of dirs) {
-      if (d.endsWith(`-${projectName}`) || d.includes(projectName.replace(/\//g, "-"))) {
+      if (d.endsWith(`-${encodedName}`) || d.includes(encodedName)) {
         transcriptDir = join(projectsDir, d);
         break;
       }

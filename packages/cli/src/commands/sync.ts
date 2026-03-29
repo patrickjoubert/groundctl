@@ -4,7 +4,7 @@ import chalk from "chalk";
 import { openDb, closeDb } from "../storage/db.js";
 import { generateProjectState, generateAgentsMd } from "../generators/markdown.js";
 
-export async function syncCommand(): Promise<void> {
+export async function syncCommand(opts?: { silent?: boolean }): Promise<void> {
   const db = await openDb();
   const projectName = process.cwd().split("/").pop() ?? "unknown";
 
@@ -17,6 +17,8 @@ export async function syncCommand(): Promise<void> {
   writeFileSync(join(cwd, "PROJECT_STATE.md"), projectState);
   writeFileSync(join(cwd, "AGENTS.md"), agentsMd);
 
-  console.log(chalk.green("\n  ✓ PROJECT_STATE.md regenerated"));
-  console.log(chalk.green("  ✓ AGENTS.md regenerated\n"));
+  if (!opts?.silent) {
+    console.log(chalk.green("\n  ✓ PROJECT_STATE.md regenerated"));
+    console.log(chalk.green("  ✓ AGENTS.md regenerated\n"));
+  }
 }

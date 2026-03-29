@@ -13,6 +13,7 @@ import { ingestCommand } from "./commands/ingest.js";
 import { reportCommand } from "./commands/report.js";
 import { healthCommand } from "./commands/health.js";
 import { dashboardCommand } from "./commands/dashboard.js";
+import { watchCommand } from "./commands/watch.js";
 
 const require = createRequire(import.meta.url);
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -107,5 +108,17 @@ program
   .description("Start web dashboard on port 4242")
   .option("-p, --port <port>", "Port number", "4242")
   .action(dashboardCommand);
+
+program
+  .command("watch")
+  .description("Watch for session end and auto-ingest transcripts")
+  .option("--daemon", "Run in background (detached process)")
+  .option("--project-path <path>", "Project path (defaults to cwd)")
+  .action((opts) =>
+    watchCommand({
+      daemon: opts.daemon,
+      projectPath: opts.projectPath,
+    })
+  );
 
 program.parse();
