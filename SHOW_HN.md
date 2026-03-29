@@ -33,7 +33,7 @@ The meta part: groundctl was built using groundctl.
 S1–S3 tracked in its own PROJECT_STATE.md.
 
 Install: npm install -g @groundctl/cli
-Repo: github.com/groundctl/groundctl
+Repo: github.com/patrickjoubert/groundctl
 Docs: groundctl.org
 
 Would love feedback on the transcript parsing heuristics —

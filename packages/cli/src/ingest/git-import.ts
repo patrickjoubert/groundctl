@@ -105,6 +105,14 @@ function parseProjectStateMd(content: string): Array<{ name: string; status: str
       continue;
     }
 
+    // Skip non-feature sections: decisions, recent sessions, debt notes
+    if (
+      section.includes("decision") ||
+      section.includes("session") ||
+      section.includes("debt") ||
+      section.includes("note")
+    ) continue;
+
     if (!trimmed.startsWith("- ") && !trimmed.startsWith("* ")) continue;
 
     const item = trimmed.slice(2).trim();
@@ -112,7 +120,10 @@ function parseProjectStateMd(content: string): Array<{ name: string; status: str
 
     // Extract feature name (before any parenthetical)
     const name = item.split("(")[0].split("→")[0].split("—")[0].trim();
-    if (!name || name.length < 3) continue;
+    // Reject obviously bad feature names: too short, too long, or looks like a date/sentence
+    if (!name || name.length < 3 || name.length > 80) continue;
+    if (/^\d{4}-\d{2}-\d{2}/.test(name)) continue; // date strings
+    if (name.split(" ").length > 8) continue;        // too many words = sentence, not feature name
 
     let status = "pending";
     let priority = "medium";

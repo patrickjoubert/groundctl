@@ -4,24 +4,63 @@ import { join, dirname } from "node:path";
 import { homedir } from "node:os";
 import { applySchema } from "./schema.js";
 
-const GROUNDCTL_DIR = join(homedir(), ".groundctl");
-const DB_PATH = join(GROUNDCTL_DIR, "db.sqlite");
+const GLOBAL_DIR = join(homedir(), ".groundctl");
+const GLOBAL_DB_PATH = join(GLOBAL_DIR, "db.sqlite");
 
 let _db: Database | null = null;
-let _dbPath: string = DB_PATH;
+let _dbPath: string = GLOBAL_DB_PATH;
+let _groundctlDir: string = GLOBAL_DIR;
+
+/**
+ * Find the project-local .groundctl directory by walking up from cwd.
+ * Returns the path to .groundctl/ if found alongside a .git/, otherwise null.
+ */
+function findProjectDir(startDir?: string): string | null {
+  let dir = startDir ?? process.cwd();
+  const root = dirname(dir); // stop at filesystem root
+
+  for (let i = 0; i < 10; i++) {
+    if (existsSync(join(dir, ".groundctl"))) {
+      return join(dir, ".groundctl");
+    }
+    // If there's a .git here but no .groundctl, this is a candidate
+    if (existsSync(join(dir, ".git"))) {
+      return join(dir, ".groundctl");
+    }
+    const parent = dirname(dir);
+    if (parent === dir) break; // filesystem root
+    dir = parent;
+  }
+
+  return null;
+}
 
 export function getDbPath(): string {
   return _dbPath;
 }
 
 export function getGroundctlDir(): string {
-  return GROUNDCTL_DIR;
+  return _groundctlDir;
 }
 
-export async function openDb(path?: string): Promise<Database> {
+export async function openDb(explicitPath?: string): Promise<Database> {
   if (_db) return _db;
 
-  const dbPath = path ?? DB_PATH;
+  let dbPath: string;
+
+  if (explicitPath) {
+    dbPath = explicitPath;
+  } else {
+    const projectDir = findProjectDir();
+    if (projectDir) {
+      _groundctlDir = projectDir;
+      dbPath = join(projectDir, "db.sqlite");
+    } else {
+      _groundctlDir = GLOBAL_DIR;
+      dbPath = GLOBAL_DB_PATH;
+    }
+  }
+
   _dbPath = dbPath;
   const dir = dirname(dbPath);
 

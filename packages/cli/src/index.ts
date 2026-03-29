@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { Command } from "commander";
+import { createRequire } from "node:module";
 import { initCommand } from "./commands/init.js";
 import { statusCommand } from "./commands/status.js";
 import { claimCommand, completeCommand } from "./commands/claim.js";
@@ -10,6 +11,10 @@ import { logCommand } from "./commands/log.js";
 import { addCommand } from "./commands/add.js";
 import { ingestCommand } from "./commands/ingest.js";
 import { reportCommand } from "./commands/report.js";
+
+const require = createRequire(import.meta.url);
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const pkg = require("../package.json") as { version: string };
 import { healthCommand } from "./commands/health.js";
 
 const program = new Command();
@@ -17,7 +22,7 @@ const program = new Command();
 program
   .name("groundctl")
   .description("The shared memory your agents and you actually need.")
-  .version("0.1.0");
+  .version(pkg.version);
 
 program
   .command("init")

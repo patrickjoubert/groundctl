@@ -1,6 +1,6 @@
 {
   "name": "@groundctl/cli",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Product memory for AI agent builders",
   "license": "MIT",
   "bin": {
@@ -24,10 +24,10 @@
   "homepage": "https://groundctl.org",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/groundctl/groundctl.git"
+    "url": "git+https://github.com/patrickjoubert/groundctl.git"
   },
   "bugs": {
-    "url": "https://github.com/groundctl/groundctl/issues"
+    "url": "https://github.com/patrickjoubert/groundctl/issues"
   },
   "scripts": {
     "build": "tsup src/index.ts --format esm --dts --clean",
