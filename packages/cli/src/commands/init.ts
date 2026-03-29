@@ -4,6 +4,7 @@ import chalk from "chalk";
 import { openDb, closeDb } from "../storage/db.js";
 import { generateProjectState, generateAgentsMd } from "../generators/markdown.js";
 import { importFromGit } from "../ingest/git-import.js";
+import { detectAndImportFeatures } from "../ingest/feature-detector.js";
 
 const PRE_SESSION_HOOK = `#!/bin/bash
 # groundctl — pre-session hook for Claude Code
@@ -56,13 +57,13 @@ export async function initCommand(options: { importFromGit?: boolean }): Promise
     if (!isGitRepo) {
       console.log(chalk.yellow("  ⚠ Not a git repo — skipping --import-from-git"));
     } else {
-      console.log(chalk.gray("  Importing from git history..."));
+      console.log(chalk.gray("  Importing sessions from git history..."));
       const result = importFromGit(db, cwd);
       console.log(
-        chalk.green(
-          `  ✓ Git import: ${result.sessionsCreated} sessions, ${result.featuresImported} features`
-        )
+        chalk.green(`  ✓ Git import: ${result.sessionsCreated} sessions`)
       );
+      // Detect real product features using Claude API
+      await detectAndImportFeatures(db, cwd);
     }
   }
 

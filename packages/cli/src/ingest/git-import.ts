@@ -1,6 +1,4 @@
 import { execSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
 import type { Database } from "sql.js";
 import { saveDb } from "../storage/db.js";
 import { queryOne } from "../storage/query.js";
@@ -89,109 +87,18 @@ function parseGitLog(cwd: string): GitCommit[] {
 }
 
 /**
- * Parse a PROJECT_STATE.md file to extract feature names and status.
- */
-function parseProjectStateMd(content: string): Array<{ name: string; status: string; priority: string }> {
-  const features: Array<{ name: string; status: string; priority: string }> = [];
-
-  const lines = content.split("\n");
-  let section = "";
-
-  for (const line of lines) {
-    const trimmed = line.trim();
-
-    if (trimmed.startsWith("## ")) {
-      section = trimmed.toLowerCase();
-      continue;
-    }
-
-    // Skip non-feature sections: decisions, recent sessions, debt notes
-    if (
-      section.includes("decision") ||
-      section.includes("session") ||
-      section.includes("debt") ||
-      section.includes("note")
-    ) continue;
-
-    if (!trimmed.startsWith("- ") && !trimmed.startsWith("* ")) continue;
-
-    const item = trimmed.slice(2).trim();
-    if (!item || item.length < 3) continue;
-
-    // Extract feature name (before any parenthetical)
-    const name = item.split("(")[0].split("→")[0].split("—")[0].trim();
-    // Reject obviously bad feature names: too short, too long, or looks like a date/sentence
-    if (!name || name.length < 3 || name.length > 80) continue;
-    if (/^\d{4}-\d{2}-\d{2}/.test(name)) continue; // date strings
-    if (name.split(" ").length > 8) continue;        // too many words = sentence, not feature name
-
-    let status = "pending";
-    let priority = "medium";
-
-    if (section.includes("built") || section.includes("done") || section.includes("complete")) {
-      status = "done";
-    } else if (section.includes("claimed") || section.includes("in progress") || section.includes("current")) {
-      status = "in_progress";
-    } else if (section.includes("available") || section.includes("next")) {
-      status = "pending";
-    } else if (section.includes("blocked")) {
-      status = "blocked";
-    }
-
-    // Extract priority from item text
-    if (/priority:\s*critical|critical\)/i.test(item)) priority = "critical";
-    else if (/priority:\s*high|high\)/i.test(item)) priority = "high";
-    else if (/priority:\s*low|low\)/i.test(item)) priority = "low";
-
-    features.push({ name, status, priority });
-  }
-
-  return features;
-}
-
-function featureIdFromName(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "")
-    .slice(0, 60);
-}
-
-/**
  * Import git history into groundctl SQLite database.
  * Creates sessions from commits and populates files_modified.
+ * Feature detection is handled separately by feature-detector.ts.
  */
 export function importFromGit(db: Database, projectPath: string): {
   sessionsCreated: number;
-  featuresImported: number;
 } {
   let sessionsCreated = 0;
-  let featuresImported = 0;
 
-  // 1. Import features from PROJECT_STATE.md if it exists
-  const psMdPath = join(projectPath, "PROJECT_STATE.md");
-  if (existsSync(psMdPath)) {
-    const content = readFileSync(psMdPath, "utf-8");
-    const features = parseProjectStateMd(content);
-
-    for (const feat of features) {
-      const id = featureIdFromName(feat.name);
-      if (!id) continue;
-
-      const exists = queryOne(db, "SELECT id FROM features WHERE id = ?", [id]);
-      if (!exists) {
-        db.run(
-          "INSERT INTO features (id, name, status, priority) VALUES (?, ?, ?, ?)",
-          [id, feat.name, feat.status, feat.priority]
-        );
-        featuresImported++;
-      }
-    }
-  }
-
-  // 2. Import git commits as sessions
+  // Import git commits as sessions
   const commits = parseGitLog(projectPath);
-  if (commits.length === 0) return { sessionsCreated, featuresImported };
+  if (commits.length === 0) return { sessionsCreated };
 
   // Group commits into "sessions" — heuristic: commits within 4 hours = same session
   const SESSION_GAP_MS = 4 * 60 * 60 * 1000;
@@ -264,5 +171,5 @@ export function importFromGit(db: Database, projectPath: string): {
 
   saveDb();
 
-  return { sessionsCreated, featuresImported };
+  return { sessionsCreated };
 }
