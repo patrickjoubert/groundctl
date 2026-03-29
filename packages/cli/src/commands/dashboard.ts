@@ -1,12 +1,12 @@
 import { createServer } from "node:http";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { exec } from "node:child_process";
 import { URL } from "node:url";
 import chalk from "chalk";
 import initSqlJs from "sql.js";
 
-// ── DB types ────────────────────────────────────────────────────────────────
+// ── Types ────────────────────────────────────────────────────────────────────
 
 interface FeatureRow {
   id: string; name: string; status: string; priority: string;
@@ -37,7 +37,7 @@ interface DbData {
 
 // ── DB helpers ───────────────────────────────────────────────────────────────
 
-function findDbPath(startDir = process.cwd()): string | null {
+export function findDbPath(startDir = process.cwd()): string | null {
   let dir = startDir;
   for (let i = 0; i < 10; i++) {
     const candidate = join(dir, ".groundctl", "db.sqlite");
@@ -49,32 +49,32 @@ function findDbPath(startDir = process.cwd()): string | null {
   return null;
 }
 
-async function readDb(dbPath: string): Promise<DbData> {
+export async function readDb(dbPath: string): Promise<DbData> {
   const SQL  = await initSqlJs();
   const buf  = readFileSync(dbPath);
   const db   = new SQL.Database(buf);
 
   function q<T>(sql: string, params: unknown[] = []): T[] {
-    const stmt = db.prepare(sql);
-    stmt.bind(params as Parameters<typeof stmt.bind>[0]);
-    const rows: T[] = [];
-    while (stmt.step()) rows.push(stmt.getAsObject() as T);
-    stmt.free();
-    return rows;
+    try {
+      const stmt = db.prepare(sql);
+      stmt.bind(params as Parameters<typeof stmt.bind>[0]);
+      const rows: T[] = [];
+      while (stmt.step()) rows.push(stmt.getAsObject() as T);
+      stmt.free();
+      return rows;
+    } catch { return []; }
   }
 
-  // Detect available columns (graceful compat with older DBs)
   interface ColInfo { name: string; }
-  const featCols = new Set(q<ColInfo>("PRAGMA table_info(features)").map(c => c.name));
-  const hasTables = new Set(q<{name: string}>("SELECT name FROM sqlite_master WHERE type='table'").map(t => t.name));
+  const featCols  = new Set(q<ColInfo>("PRAGMA table_info(features)").map(c => c.name));
+  const tableSet  = new Set(q<{name:string}>("SELECT name FROM sqlite_master WHERE type='table'").map(t => t.name));
 
-  const groupSel = featCols.has("group_id") ? ", group_id" : ", null as group_id";
-  const itemsSel = featCols.has("items") ? ", items" : ", null as items";
-  const progSel  = (featCols.has("progress_done") && featCols.has("progress_total"))
-    ? ", progress_done, progress_total" : ", null as progress_done, null as progress_total";
+  const gSel = featCols.has("group_id")      ? ", group_id"                       : ", null as group_id";
+  const iSel = featCols.has("items")          ? ", items"                          : ", null as items";
+  const pSel = featCols.has("progress_done")  ? ", progress_done, progress_total"  : ", null as progress_done, null as progress_total";
 
   const features  = q<FeatureRow>(
-    `SELECT id, name, status, priority, description${groupSel}${itemsSel}${progSel}
+    `SELECT id, name, status, priority, description${gSel}${iSel}${pSel}
      FROM features
      ORDER BY CASE status WHEN 'in_progress' THEN 0 WHEN 'pending' THEN 1 ELSE 2 END,
               CASE priority WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END`
@@ -85,216 +85,132 @@ async function readDb(dbPath: string): Promise<DbData> {
      FROM claims c JOIN features f ON c.feature_id = f.id WHERE c.released_at IS NULL`
   );
   const decisions = q<DecisionRow>("SELECT id, session_id, description, rationale FROM decisions ORDER BY id DESC LIMIT 50");
-  const files     = q<FileRow>("SELECT id, session_id, path FROM files_modified ORDER BY id DESC LIMIT 200");
-  const groups    = hasTables.has("feature_groups")
+  const files     = q<FileRow>("SELECT id, session_id, path FROM files_modified ORDER BY id DESC LIMIT 300");
+  const groups    = tableSet.has("feature_groups")
     ? q<GroupRow>("SELECT * FROM feature_groups ORDER BY order_index") : [];
-  const deps      = hasTables.has("feature_dependencies") ? q<DepRow>(
+  const deps      = tableSet.has("feature_dependencies") ? q<DepRow>(
     `SELECT d.feature_id, d.depends_on_id, f2.name as dep_name, f2.status as dep_status
-     FROM feature_dependencies d
-     JOIN features f2 ON f2.id = d.depends_on_id
+     FROM feature_dependencies d JOIN features f2 ON f2.id = d.depends_on_id
      WHERE d.type = 'blocks'`
   ) : [];
 
-  const total      = features.length;
-  const done       = features.filter(f => f.status === "done").length;
-  const pct        = total > 0 ? Math.round(done / total * 100) : 0;
-  const testFiles  = files.filter(f => /\.(test|spec)\./.test(f.path) || f.path.includes("__tests__")).length;
-  const decCount   = decisions.length;
-  const stale      = claims.filter(c => Date.now() - new Date(c.claimed_at).getTime() > 86_400_000).length;
-  const hFeatures  = Math.round((done / Math.max(1, total)) * 40);
-  const hTests     = Math.min(20, testFiles * 5);
-  const hArch      = Math.min(20, decCount * 2);
-  const hClaims    = stale === 0 ? 10 : 0;
-  const health     = Math.min(100, hFeatures + hTests + hArch + hClaims);
+  const total     = features.length;
+  const done      = features.filter(f => f.status === "done").length;
+  const pct       = total > 0 ? Math.round(done / total * 100) : 0;
+  const testFiles = files.filter(f => /\.(test|spec)\./.test(f.path) || f.path.includes("__tests__")).length;
+  const decCount  = decisions.length;
+  const stale     = claims.filter(c => Date.now() - new Date(c.claimed_at).getTime() > 7_200_000).length;
+  const hFeatures = Math.round((done / Math.max(1, total)) * 40);
+  const hTests    = Math.min(20, testFiles * 5);
+  const hArch     = Math.min(20, decCount * 2);
+  const hClaims   = stale === 0 ? 10 : 0;
+  const health    = Math.min(100, hFeatures + hTests + hArch + hClaims);
 
   db.close();
   return { features, sessions, claims, decisions, files, groups, deps,
            meta: { total, done, pct, health, testFiles, decCount, stale, hFeatures, hTests, hArch, hClaims } };
 }
 
-// ── Shared utils ─────────────────────────────────────────────────────────────
+export async function claimFeatureInDb(dbPath: string, featureId: string): Promise<{ok: boolean; error?: string; featureName?: string}> {
+  const SQL = await initSqlJs();
+  const buf = readFileSync(dbPath);
+  const db  = new SQL.Database(buf);
+
+  function q<T>(sql: string, p: unknown[] = []): T[] {
+    try {
+      const stmt = db.prepare(sql);
+      stmt.bind(p as Parameters<typeof stmt.bind>[0]);
+      const rows: T[] = [];
+      while (stmt.step()) rows.push(stmt.getAsObject() as T);
+      stmt.free();
+      return rows;
+    } catch { return []; }
+  }
+
+  const rows = q<FeatureRow>("SELECT id, name, status FROM features WHERE id = ? OR name = ?", [featureId, featureId]);
+  if (!rows.length) { db.close(); return { ok: false, error: "Feature not found" }; }
+  const feat = rows[0];
+  if (feat.status === "done") { db.close(); return { ok: false, error: "Already done" }; }
+
+  const existing = q<{c:number}>("SELECT COUNT(*) as c FROM claims WHERE feature_id = ? AND released_at IS NULL", [feat.id]);
+  if ((existing[0]?.c ?? 0) > 0) { db.close(); return { ok: false, error: "Already claimed" }; }
+
+  const sessRows = q<{id:string}>("SELECT id FROM sessions ORDER BY started_at DESC LIMIT 1");
+  const sessionId = sessRows[0]?.id ?? "dashboard";
+
+  try {
+    db.run("INSERT INTO claims (feature_id, session_id, claimed_at) VALUES (?, ?, datetime('now'))", [feat.id, sessionId]);
+    db.run("UPDATE features SET status = 'in_progress', updated_at = datetime('now') WHERE id = ?", [feat.id]);
+    const data = db.export();
+    db.close();
+    writeFileSync(dbPath, Buffer.from(data));
+    return { ok: true, featureName: feat.name };
+  } catch (e) {
+    db.close();
+    return { ok: false, error: (e as Error).message };
+  }
+}
+
+// ── HTML utils ───────────────────────────────────────────────────────────────
 
 function esc(s: unknown): string {
-  return String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  return String(s ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
 }
 
 function rel(ts: string | null | undefined): string {
   if (!ts) return "—";
   const m = Math.floor((Date.now() - new Date(ts).getTime()) / 60_000);
-  if (m <  1)  return "just now";
-  if (m < 60)  return `${m}m ago`;
+  if (m <  1) return "just now";
+  if (m < 60) return `${m}m ago`;
   const h = Math.floor(m / 60);
-  if (h < 24)  return `${h}h ago`;
+  if (h < 24) return `${h}h ago`;
   return `${Math.floor(h / 24)}d ago`;
 }
 
-function bar(done: number, total: number, w = 24): string {
-  const n = total > 0 ? Math.round((done / total) * w) : 0;
-  return "█".repeat(n) + "░".repeat(w - n);
+function elapsed(ts: string): string {
+  const m = Math.floor((Date.now() - new Date(ts).getTime()) / 60_000);
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60); const rm = m % 60;
+  return `${h}h${rm > 0 ? rm + "m" : ""}`;
 }
 
-function miniBar(score: number, max: number, w = 12): string {
-  const n = Math.round((score / max) * w);
-  return "█".repeat(n) + "░".repeat(w - n);
-}
-
-function statusIcon(status: string): string {
+function statusIcon(status: string, isBlocked = false): string {
   if (status === "done")        return "✓";
   if (status === "in_progress") return "●";
-  if (status === "blocked")     return "⊘";
+  if (isBlocked)                return "⊘";
   return "○";
 }
 
-function statusClass(status: string): string {
-  if (status === "done")        return "s-done";
-  if (status === "in_progress") return "s-active";
-  if (status === "blocked")     return "s-blocked";
-  return "s-pending";
+function statusColor(status: string, isBlocked = false): string {
+  if (status === "done")        return "#00ff88";
+  if (status === "in_progress") return "#ffaa00";
+  if (isBlocked)                return "#ff4444";
+  return "#888";
 }
 
-// ── VUE NOW ──────────────────────────────────────────────────────────────────
-
-function renderNow(data: DbData, projectName: string): string {
-  const { features, sessions, claims, deps, meta } = data;
-
-  // Compute ready / blocked for action zone
-  const blockedIds = new Set(deps.filter(d => d.dep_status !== "done").map(d => d.feature_id));
-  const pending    = features.filter(f => f.status === "pending");
-  const ready      = pending.filter(f => !blockedIds.has(f.id)).slice(0, 5);
-  const blocked    = pending.filter(f =>  blockedIds.has(f.id)).slice(0, 5);
-  // Next recommended = first ready
-  const next       = ready[0] ?? null;
-
-  const pColor  = meta.pct    >= 70 ? "#00ff88" : meta.pct    >= 40 ? "#ffaa00" : "#ff4444";
-  const hColor  = meta.health >= 70 ? "#00ff88" : meta.health >= 40 ? "#ffaa00" : "#ff4444";
-
-  // ── Left column ────────────────────────────────────────────────────
-  const leftHtml = `
-    <div class="now-left">
-      <div class="project-name">${esc(projectName)}</div>
-      <div class="pct-label" style="color:${pColor}">${meta.pct}% implemented</div>
-      <div class="prog-bar" style="color:${pColor}">${bar(meta.done, meta.total, 28)}</div>
-      <div class="prog-sub">${meta.done} / ${meta.total} features done</div>
-
-      <div class="stat-grid">
-        <div class="stat-row"><span class="stat-label">Sessions</span><span class="stat-val">${sessions.length}</span></div>
-        <div class="stat-row"><span class="stat-label">Last session</span><span class="stat-val">${rel(sessions[0]?.started_at)}</span></div>
-        <div class="stat-row"><span class="stat-label">Active claims</span><span class="stat-val" style="color:${claims.length > 0 ? "#ffaa00" : "#555"}">${claims.length}</span></div>
-        <div class="stat-row"><span class="stat-label">Arch decisions</span><span class="stat-val">${meta.decCount}</span></div>
-      </div>
-
-      <div class="health-block">
-        <div class="section-label">HEALTH SCORE</div>
-        <div class="health-score" style="color:${hColor}">${meta.health}<span class="health-max">/100</span></div>
-        <div class="health-bars">
-          <div class="hbar-row">
-            <span class="hbar-label">Features</span>
-            <span class="hbar-track" style="color:${meta.hFeatures >= 28 ? "#00ff88" : "#ffaa00"}">${miniBar(meta.hFeatures, 40)}</span>
-            <span class="hbar-score">${meta.hFeatures}/40</span>
-          </div>
-          <div class="hbar-row">
-            <span class="hbar-label">Tests</span>
-            <span class="hbar-track" style="color:${meta.hTests >= 10 ? "#00ff88" : "#ff4444"}">${miniBar(meta.hTests, 20)}</span>
-            <span class="hbar-score">${meta.hTests}/20</span>
-          </div>
-          <div class="hbar-row">
-            <span class="hbar-label">Arch log</span>
-            <span class="hbar-track" style="color:${meta.hArch >= 10 ? "#00ff88" : "#ffaa00"}">${miniBar(meta.hArch, 20)}</span>
-            <span class="hbar-score">${meta.hArch}/20</span>
-          </div>
-          <div class="hbar-row">
-            <span class="hbar-label">Claims</span>
-            <span class="hbar-track" style="color:${meta.hClaims === 10 ? "#00ff88" : "#ff4444"}">${miniBar(meta.hClaims, 10)}</span>
-            <span class="hbar-score">${meta.hClaims}/10</span>
-          </div>
-        </div>
-      </div>
-    </div>`;
-
-  // ── Right column ───────────────────────────────────────────────────
-  const inProgressHtml = claims.length
-    ? claims.map(c => {
-        const elapsed = Math.floor((Date.now() - new Date(c.claimed_at).getTime()) / 60_000);
-        const elStr   = elapsed < 60 ? `${elapsed}m` : `${Math.floor(elapsed/60)}h ${elapsed%60}m`;
-        const isStale = elapsed > 1440;
-        return `<div class="az-row">
-          <span class="az-icon" style="color:#ffaa00">●</span>
-          <span class="az-name">${esc(c.feature_name)}</span>
-          <span class="az-meta">${esc(c.session_id.slice(0,8))}</span>
-          <span class="az-time" style="color:${isStale ? "#ff4444" : "#555"}">${elStr}</span>
-        </div>`;
-      }).join("")
-    : `<div class="az-empty">No active claims</div>`;
-
-  const readyHtml = ready.length
-    ? ready.map((f, i) => `<div class="az-row">
-        <span class="az-icon" style="color:${i === 0 ? "#00ff88" : "#444"}">○</span>
-        <span class="az-name">${esc(f.name)}</span>
-        <span class="az-pri p-${esc(f.priority)}">${esc(f.priority)}</span>
-      </div>`).join("")
-    : `<div class="az-empty">Nothing pending</div>`;
-
-  const blockedHtml = blocked.length
-    ? blocked.map(f => {
-        const unmet = deps.filter(d => d.feature_id === f.id && d.dep_status !== "done");
-        return `<div class="az-row">
-          <span class="az-icon" style="color:#ff4444">⊘</span>
-          <span class="az-name">${esc(f.name)}</span>
-          <span class="az-needs">needs: ${unmet.map(d => esc(d.dep_name)).join(", ")}</span>
-        </div>`;
-      }).join("")
-    : `<div class="az-empty">No blocked features</div>`;
-
-  const nextHtml = next
-    ? `<div class="next-box">
-        <span style="color:#00ff88">→</span>
-        <span class="next-name">${esc(next.name)}</span>
-        <span class="next-hint">groundctl claim "${esc(next.name)}"</span>
-      </div>`
-    : `<div class="az-empty">${meta.done === meta.total ? "All features done 🎉" : "Nothing available"}</div>`;
-
-  const rightHtml = `
-    <div class="now-right">
-      <div class="az-section">
-        <div class="az-title">IN PROGRESS <span class="az-count">${claims.length}</span></div>
-        ${inProgressHtml}
-      </div>
-      <div class="az-section">
-        <div class="az-title">READY TO BUILD <span class="az-count">${ready.length}</span></div>
-        ${readyHtml}
-      </div>
-      ${blocked.length > 0 ? `<div class="az-section">
-        <div class="az-title" style="color:#ff4444">BLOCKED <span class="az-count">${blocked.length}</span></div>
-        ${blockedHtml}
-      </div>` : ""}
-      <div class="az-section">
-        <div class="az-title" style="color:#00ff88">NEXT RECOMMENDED</div>
-        ${nextHtml}
-      </div>
-    </div>`;
-
-  return `<div class="now-layout">${leftHtml}${rightHtml}</div>`;
+function progressBarHtml(done: number | null, total: number | null, color: string): string {
+  if (!total) return "";
+  const pct = Math.round(((done ?? 0) / total) * 100);
+  return `<div class="pbar-track"><div class="pbar-fill" style="width:${pct}%;background:${color}"></div></div>`;
 }
 
-// ── VUE PLAN ─────────────────────────────────────────────────────────────────
+function groupLabel(groupId: number | null, groups: GroupRow[]): string {
+  if (!groupId) return "";
+  const g = groups.find(g => g.id === groupId);
+  return g ? `<span class="lc-group">${esc(g.label || g.name)}</span>` : "";
+}
+
+// ── VUE LE PLAN ──────────────────────────────────────────────────────────────
 
 function renderPlan(data: DbData): string {
   const { features, groups, deps } = data;
 
-  // Build dep maps
-  const depsOf = new Map<string, string[]>(); // feature_id → depends_on_ids
-  const rdepsOf = new Map<string, string[]>(); // feature_id → feature_ids that depend on it
+  const blockedIds = new Set(deps.filter(d => d.dep_status !== "done").map(d => d.feature_id));
+  const depsOf     = new Map<string, DepRow[]>();
   for (const d of deps) {
     if (!depsOf.has(d.feature_id)) depsOf.set(d.feature_id, []);
-    depsOf.get(d.feature_id)!.push(d.depends_on_id);
-    if (!rdepsOf.has(d.depends_on_id)) rdepsOf.set(d.depends_on_id, []);
-    rdepsOf.get(d.depends_on_id)!.push(d.feature_id);
+    depsOf.get(d.feature_id)!.push(d);
   }
-
-  // Find blocked features (for legend display)
-  const blockedIds = new Set(
-    deps.filter(d => d.dep_status !== "done").map(d => d.feature_id)
-  );
 
   // Group features
   const byGroup = new Map<number | null, FeatureRow[]>();
@@ -306,79 +222,39 @@ function renderPlan(data: DbData): string {
     byGroup.get(gid)!.push(f);
   }
 
-  function nodeHtml(f: FeatureRow): string {
-    const icon   = statusIcon(f.status === "pending" && blockedIds.has(f.id) ? "blocked" : f.status);
-    const cls    = statusClass(f.status === "pending" && blockedIds.has(f.id) ? "blocked" : f.status);
-    const itemsArr = f.items ? f.items.split(",").map(s => s.trim()).filter(Boolean) : [];
-    const prog   = (f.progress_done != null && f.progress_total != null)
-      ? `${f.progress_done}/${f.progress_total}` : "";
-    const dataDesc  = esc(f.description ?? "");
-    const dataItems = esc(itemsArr.join(" · ") ?? "");
-    const dataDeps  = esc((depsOf.get(f.id) ?? []).join(","));
-    return `<span class="dag-node ${cls}" onclick="showPopup(${JSON.stringify(JSON.stringify({
-      id: f.id, name: f.name, status: f.status, priority: f.priority,
-      description: f.description ?? "", items: itemsArr, progress: prog,
-      deps: (depsOf.get(f.id) ?? [])
-    }))})" title="${dataDesc || esc(f.name)}">${icon} ${esc(f.name)}</span>`;
+  function featureCard(f: FeatureRow): string {
+    const isBlocked = f.status === "pending" && blockedIds.has(f.id);
+    const effStatus = isBlocked ? "blocked" : f.status;
+    const icon   = statusIcon(f.status, isBlocked);
+    const color  = statusColor(f.status, isBlocked);
+    const fDeps  = depsOf.get(f.id) ?? [];
+    const unmet  = fDeps.filter(d => d.dep_status !== "done");
+    const itemArr = f.items ? f.items.split(",").map(s => s.trim()).filter(Boolean) : [];
+    const pd = f.progress_done ?? 0;
+    const pt = f.progress_total ?? itemArr.length;
+
+    const popData = JSON.stringify({
+      id: f.id, name: f.name, status: effStatus, priority: f.priority,
+      description: f.description ?? "",
+      items: itemArr,
+      progress: pt > 0 ? `${pd}/${pt}` : "",
+      deps: fDeps.map(d => ({ name: d.dep_name, status: d.dep_status })),
+    });
+
+    return `<div class="feat-card s-${esc(effStatus)}" onclick='showPopup(${JSON.stringify(popData)})'>
+  <div class="fc-top">
+    <span class="fc-icon" style="color:${color}">${icon}</span>
+    <span class="fc-name">${esc(f.name)}</span>
+    <span class="fc-pri p-${esc(f.priority)}">${esc(f.priority)}</span>
+  </div>
+  ${f.description ? `<div class="fc-desc">${esc(f.description.slice(0, 80))}</div>` : ""}
+  ${pt > 0 ? `<div class="fc-prog">${progressBarHtml(pd, pt, color)}<span class="fc-pgnum">${pd}/${pt}</span></div>` : ""}
+  ${unmet.length > 0 ? `<div class="fc-deps">⊘ ${unmet.map(d => `<span class="dep-tag">${esc(d.dep_name)}</span>`).join(" ")}</div>` : ""}
+  ${fDeps.length > 0 && unmet.length === 0 ? `<div class="fc-deps ok">↳ ${fDeps.map(d => `<span class="dep-ok">${esc(d.dep_name)}</span>`).join(" ")}</div>` : ""}
+</div>`;
   }
 
-  // Build chain rows using topological sort within each group
-  function buildRows(feats: FeatureRow[]): string[][] {
-    if (feats.length === 0) return [];
-    const ids = new Set(feats.map(f => f.id));
-
-    // Compute in-degree within group
-    const inDeg = new Map<string, number>();
-    for (const f of feats) inDeg.set(f.id, 0);
-    for (const d of deps) {
-      if (ids.has(d.feature_id) && ids.has(d.depends_on_id)) {
-        inDeg.set(d.feature_id, (inDeg.get(d.feature_id) ?? 0) + 1);
-      }
-    }
-
-    // Roots
-    const roots = feats.filter(f => (inDeg.get(f.id) ?? 0) === 0);
-    if (roots.length === 0) return [feats.map(f => f.id)]; // cycle fallback
-
-    // BFS chains from each root
-    const visited = new Set<string>();
-    const chains: string[][] = [];
-
-    for (const root of roots) {
-      if (visited.has(root.id)) continue;
-      const chain: string[] = [];
-      let cur: string | null = root.id;
-      while (cur && ids.has(cur) && !visited.has(cur)) {
-        visited.add(cur);
-        chain.push(cur);
-        const children = (rdepsOf.get(cur) ?? []).filter(id => ids.has(id) && !visited.has(id));
-        cur = children.length === 1 ? children[0] : null;
-        // If multiple children, start new chains for them later
-        if (children.length > 1) {
-          for (const c of children.slice(1)) {
-            if (!visited.has(c)) roots.push(feats.find(f => f.id === c)!);
-          }
-        }
-      }
-      if (chain.length > 0) chains.push(chain);
-    }
-
-    // Catch any unvisited
-    const remaining = feats.filter(f => !visited.has(f.id));
-    if (remaining.length > 0) {
-      // pack into rows of 4
-      for (let i = 0; i < remaining.length; i += 4) {
-        chains.push(remaining.slice(i, i + 4).map(f => f.id));
-      }
-    }
-
-    return chains;
-  }
-
-  const sections: string[] = [];
-  const featById = new Map(features.map(f => [f.id, f]));
-
-  const orderedGroups: Array<{ id: number | null; label: string; feats: FeatureRow[] }> = [];
+  const orderedGroups: Array<{id: number | null; label: string; feats: FeatureRow[]}> = [];
   for (const g of groups) {
     const feats = byGroup.get(g.id) ?? [];
     if (feats.length > 0) orderedGroups.push({ id: g.id, label: g.label || g.name, feats });
@@ -386,367 +262,497 @@ function renderPlan(data: DbData): string {
   const ungrouped = byGroup.get(null) ?? [];
   if (ungrouped.length > 0) orderedGroups.push({ id: null, label: "OTHER", feats: ungrouped });
 
-  for (const grp of orderedGroups) {
-    const chains = buildRows(grp.feats);
-    const chainHtml = chains.map(chain => {
-      const nodes = chain
-        .map(id => featById.get(id))
-        .filter(Boolean) as FeatureRow[];
-      // Check if consecutive nodes actually have a dep relationship
-      const parts: string[] = [];
-      for (let i = 0; i < nodes.length; i++) {
-        parts.push(nodeHtml(nodes[i]));
-        if (i < nodes.length - 1) {
-          const hasDep = (rdepsOf.get(nodes[i].id) ?? []).includes(nodes[i+1].id);
-          parts.push(`<span class="dag-arrow">${hasDep ? "→" : "  "}</span>`);
+  const sections = orderedGroups.map(grp => {
+    const doneCt  = grp.feats.filter(f => f.status === "done").length;
+    const total   = grp.feats.length;
+    const pct     = total > 0 ? Math.round(doneCt / total * 100) : 0;
+    const gColor  = pct === 100 ? "#00ff88" : pct >= 50 ? "#ffaa00" : "#888";
+
+    return `<div class="plan-group">
+  <div class="pg-header">
+    <span class="pg-name">${esc(grp.label)}</span>
+    <div class="pg-prog"><div class="pg-bar-track"><div class="pg-bar-fill" style="width:${pct}%;background:${gColor}"></div></div></div>
+    <span class="pg-count" style="color:${gColor}">${doneCt}/${total}</span>
+  </div>
+  <div class="feat-grid">${grp.feats.map(featureCard).join("\n")}</div>
+</div>`;
+  });
+
+  const legend = `<div class="plan-legend">
+  <span><span style="color:#00ff88">✓</span> done</span>
+  <span class="leg-sep">·</span>
+  <span><span style="color:#ffaa00">●</span> en cours</span>
+  <span class="leg-sep">·</span>
+  <span><span style="color:#888">○</span> disponible</span>
+  <span class="leg-sep">·</span>
+  <span><span style="color:#ff4444">⊘</span> bloqué</span>
+  <span class="leg-sep">·</span>
+  <span style="color:#555">clic sur une carte → détails + launch</span>
+</div>`;
+
+  const modal = `<div id="popup" class="popup-overlay" onclick="if(event.target===this)closePopup()">
+  <div class="popup-box">
+    <button class="popup-close" onclick="closePopup()">✕</button>
+    <div id="popup-content"></div>
+  </div>
+</div>`;
+
+  return `<div class="plan-view">${legend}${sections.join("")}${modal}</div>`;
+}
+
+// ── VUE LE CHANTIER ──────────────────────────────────────────────────────────
+
+function renderChantier(data: DbData): string {
+  const { features, claims, deps, files, groups } = data;
+
+  const blockedIds = new Set(deps.filter(d => d.dep_status !== "done").map(d => d.feature_id));
+  const pending    = features.filter(f => f.status === "pending");
+  const ready      = pending.filter(f => !blockedIds.has(f.id));
+  const blocked    = pending.filter(f =>  blockedIds.has(f.id));
+  const isStale    = (c: ClaimRow) => Date.now() - new Date(c.claimed_at).getTime() > 7_200_000;
+
+  // Agents en cours
+  const agentsHtml = claims.length > 0
+    ? claims.map(c => {
+        const stale     = isStale(c);
+        const el        = elapsed(c.claimed_at);
+        const sessFiles = files.filter(f => f.session_id === c.session_id).length;
+        return `<div class="agent-card${stale ? " stale" : ""}">
+  <div class="ac-header">
+    <span class="ac-dot" style="color:${stale ? "#ff4444" : "#ffaa00"}">●</span>
+    <span class="ac-name">${esc(c.feature_name)}</span>
+    <span class="ac-badge ${stale ? "stale" : "active"}">${stale ? "⚠ STALE" : "EN COURS"}</span>
+  </div>
+  <div class="ac-meta">Session <code>${esc(c.session_id.slice(0,8))}</code> · démarré il y a ${el} · ${sessFiles} fichier${sessFiles !== 1 ? "s" : ""}</div>
+  ${stale ? `<div class="ac-warn">⚠ Pas d'activité depuis plus de 2h — <code>groundctl stale</code></div>` : ""}
+</div>`;
+      }).join("")
+    : `<div class="ch-empty">Aucun agent actif</div>`;
+
+  // Prêt à lancer
+  const readyHtml = ready.length > 0
+    ? `<div class="launch-grid">${ready.slice(0, 6).map(f => `<div class="launch-card">
+  <div class="lc-header">
+    <span style="color:#888">○</span>
+    <span class="lc-name">${esc(f.name)}</span>
+  </div>
+  <div class="lc-meta">${`<span class="lc-pri p-${esc(f.priority)}">${esc(f.priority)}</span>`}${groupLabel(f.group_id, groups)}</div>
+  <div class="lc-desc">${esc((f.description ?? "—").slice(0, 60))}</div>
+  <button class="launch-btn" onclick="launchFeature('${esc(f.id)}','${esc(f.name)}',this)">▶ LAUNCH</button>
+</div>`).join("")}</div>`
+    : `<div class="ch-empty">${data.meta.done === data.meta.total ? "🎉 Tous les features sont done" : "Aucun feature disponible"}</div>`;
+
+  // Bloqué
+  const blockedHtml = blocked.length > 0
+    ? `<div class="blocked-list">${blocked.map(f => {
+        const unmet = deps.filter(d => d.feature_id === f.id && d.dep_status !== "done");
+        return `<div class="blocked-row">
+  <span class="br-icon">⊘</span>
+  <span class="br-name">${esc(f.name)}</span>
+  <span class="br-needs">nécessite : ${unmet.map(d => `<span class="br-dep">${esc(d.dep_name)}</span>`).join(", ")}</span>
+</div>`;
+      }).join("")}</div>`
+    : "";
+
+  // Alertes
+  const staleCount = claims.filter(isStale).length;
+  const alertsHtml = staleCount > 0
+    ? `<div class="alert-row warn">⚠ ${staleCount} claim${staleCount > 1 ? "s" : ""} stale — <code>groundctl stale</code></div>`
+    : `<div class="ch-empty ok"><span style="color:#00ff88">✓</span> Aucune alerte active</div>`;
+
+  return `<div class="chantier-view">
+<div class="ch-section">
+  <div class="ch-title">AGENTS EN COURS <span class="ch-ct">${claims.length}</span></div>
+  ${agentsHtml}
+</div>
+<div class="ch-section">
+  <div class="ch-title">PRÊT À LANCER <span class="ch-ct">${ready.length}</span></div>
+  ${readyHtml}
+</div>
+${blocked.length > 0 ? `<div class="ch-section">
+  <div class="ch-title" style="color:#ff4444">BLOQUÉ <span class="ch-ct">${blocked.length}</span></div>
+  ${blockedHtml}
+</div>` : ""}
+<div class="ch-section">
+  <div class="ch-title">ALERTES</div>
+  ${alertsHtml}
+</div>
+<div id="launch-toast" class="toast"></div>
+</div>`;
+}
+
+// ── VUE LES CORPS DE MÉTIER ──────────────────────────────────────────────────
+
+function renderMetiers(data: DbData): string {
+  const { features, groups, deps, decisions, files } = data;
+
+  const blockedIds = new Set(deps.filter(d => d.dep_status !== "done").map(d => d.feature_id));
+  const depPairSet = new Set(deps.map(d => `${d.feature_id}:${d.depends_on_id}`));
+
+  const byGroup = new Map<number | null, FeatureRow[]>();
+  byGroup.set(null, []);
+  for (const g of groups) byGroup.set(g.id, []);
+  for (const f of features) {
+    const gid = f.group_id ?? null;
+    if (!byGroup.has(gid)) byGroup.set(gid, []);
+    byGroup.get(gid)!.push(f);
+  }
+
+  const orderedGroups: Array<{id: number | null; label: string; feats: FeatureRow[]}> = [];
+  for (const g of groups) {
+    const feats = byGroup.get(g.id) ?? [];
+    if (feats.length > 0) orderedGroups.push({ id: g.id, label: g.label || g.name, feats });
+  }
+  const ungrouped = byGroup.get(null) ?? [];
+  if (ungrouped.length > 0) orderedGroups.push({ id: null, label: "OTHER", feats: ungrouped });
+
+  const sections = orderedGroups.map(grp => {
+    if (grp.feats.length === 0) return "";
+    const doneCt  = grp.feats.filter(f => f.status === "done").length;
+    const total   = grp.feats.length;
+    const pct     = total > 0 ? Math.round(doneCt / total * 100) : 0;
+    const gColor  = pct === 100 ? "#00ff88" : pct >= 50 ? "#ffaa00" : "#888";
+
+    const available = grp.feats.filter(f => f.status === "pending" && !blockedIds.has(f.id));
+
+    // Find parallel pairs
+    const parallelPairs: [FeatureRow, FeatureRow][] = [];
+    outer: for (let i = 0; i < available.length; i++) {
+      for (let j = i + 1; j < available.length; j++) {
+        const a = available[i], b = available[j];
+        if (!depPairSet.has(`${a.id}:${b.id}`) && !depPairSet.has(`${b.id}:${a.id}`)) {
+          parallelPairs.push([a, b]);
+          if (parallelPairs.length >= 2) break outer;
         }
       }
-      return `<div class="dag-chain">${parts.join("")}</div>`;
+    }
+
+    const featRows = grp.feats.map(f => {
+      const isBlocked = f.status === "pending" && blockedIds.has(f.id);
+      const effStatus = isBlocked ? "blocked" : f.status;
+      const icon  = statusIcon(f.status, isBlocked);
+      const col   = statusColor(f.status, isBlocked);
+      const pd = f.progress_done ?? 0;
+      const pt = f.progress_total ?? 0;
+
+      return `<div class="mt-feat-row">
+  <span class="mt-icon" style="color:${col}">${icon}</span>
+  <span class="mt-name s-${esc(effStatus)}">${esc(f.name)}</span>
+  <div class="mt-bar">${pt > 0 ? progressBarHtml(pd, pt, col) : ""}</div>
+  <span class="mt-desc">${esc((f.description ?? "").slice(0, 50))}</span>
+  ${f.status !== "done" && !isBlocked ? `<button class="mt-launch" onclick="launchFeature('${esc(f.id)}','${esc(f.name)}',this)">▶</button>` : `<span></span>`}
+</div>`;
     }).join("");
 
-    const doneCount = grp.feats.filter(f => f.status === "done").length;
-    sections.push(`
-      <div class="dag-group">
-        <div class="dag-group-header">
-          <span class="dag-group-name">${esc(grp.label)}</span>
-          <span class="dag-group-meta">${doneCount}/${grp.feats.length} done</span>
-        </div>
-        <div class="dag-chains">${chainHtml}</div>
-      </div>`);
-  }
+    const parallelHtml = parallelPairs.length > 0
+      ? `<div class="mt-parallel">
+  <span class="mt-para-label">Runs en // :</span>
+  ${parallelPairs.map(([a,b]) => `
+  <div class="mt-para-pair">
+    <button class="launch-btn-sm" onclick="launchFeature('${esc(a.id)}','${esc(a.name)}',this)">▶ ${esc(a.name)}</button>
+    <span style="color:#555">+</span>
+    <button class="launch-btn-sm" onclick="launchFeature('${esc(b.id)}','${esc(b.name)}',this)">▶ ${esc(b.name)}</button>
+  </div>`).join("")}
+</div>`
+      : doneCt === total
+        ? `<div class="mt-parallel ok"><span style="color:#00ff88">✓</span> Corps de métier complet</div>`
+        : available.length === 0
+          ? `<div class="mt-parallel dim">Runs en // : aucun disponible</div>`
+          : `<div class="mt-parallel dim">Runs en // : un seul feature disponible</div>`;
 
-  const legend = `
-    <div class="dag-legend">
-      <span class="s-done">✓ done</span>
-      <span class="dag-sep">·</span>
-      <span class="s-active">● in progress</span>
-      <span class="dag-sep">·</span>
-      <span class="s-pending">○ ready</span>
-      <span class="dag-sep">·</span>
-      <span class="s-blocked">⊘ blocked</span>
-      <span class="dag-sep">·</span>
-      <span style="color:#555">→ depends on</span>
-      <span class="dag-sep">·</span>
-      <span style="color:#555;font-size:.8rem">click node for details</span>
-    </div>`;
+    return `<div class="metier-card">
+  <div class="mc-header">
+    <span class="mc-name">${esc(grp.label)}</span>
+    <div class="mc-prog"><div class="mc-bar-track"><div class="mc-bar-fill" style="width:${pct}%;background:${gColor}"></div></div></div>
+    <span class="mc-count" style="color:${gColor}">${doneCt}/${total} done &nbsp; ${pct}%</span>
+  </div>
+  <div class="mt-feats">${featRows}</div>
+  ${parallelHtml}
+</div>`;
+  }).filter(Boolean);
 
-  const modal = `
-    <div id="popup" class="popup-overlay" onclick="if(event.target===this)closePopup()">
-      <div class="popup-box">
-        <div class="popup-close" onclick="closePopup()">✕</div>
-        <div id="popup-content"></div>
-      </div>
-    </div>`;
-
-  return `<div class="plan-wrap">${legend}${sections.join("")}${modal}</div>`;
+  return `<div class="metiers-view">
+${sections.join("\n")}
+<div id="launch-toast" class="toast"></div>
+</div>`;
 }
 
-// ── VUE HEALTH ───────────────────────────────────────────────────────────────
+// ── CSS ──────────────────────────────────────────────────────────────────────
 
-function renderHealth(data: DbData, projectName: string): string {
-  const { features, sessions, decisions, files, meta } = data;
-
-  const hColor  = meta.health >= 70 ? "#00ff88" : meta.health >= 40 ? "#ffaa00" : "#ff4444";
-
-  // Recommendations
-  const recs: string[] = [];
-  if (meta.hTests < 10)    recs.push("Add test files — only " + meta.testFiles + " test file(s) detected. Target ≥4 for full score.");
-  if (meta.hArch < 10)     recs.push("Log architecture decisions. " + meta.decCount + " entries found. Target ≥10 for full score.");
-  if (meta.stale > 0)      recs.push(`Release ${meta.stale} stale claim(s) (older than 24h) to free up the feature backlog.`);
-  if (meta.pct < 70)       recs.push(`${meta.total - meta.done} features still pending. Run \`groundctl next\` to pick the next one.`);
-  if (sessions.length < 5) recs.push("Log more sessions. Run `groundctl ingest` after each agent session.");
-  if (recs.length === 0)   recs.push("All systems nominal. Ship it. 🚀");
-
-  // Debt tracker
-  const staleDebt  = meta.stale;
-  const testDebt   = Math.max(0, 4 - meta.testFiles);
-  const archDebt   = Math.max(0, 10 - meta.decCount);
-  const pendDebt   = features.filter(f => f.status === "pending").length;
-
-  // Session timeline (last 10)
-  const recentSessions = sessions.slice(0, 10);
-  const sessionRows = recentSessions.map(s => {
-    const fCount = files.filter(f => f.session_id === s.id).length;
-    const dCount = decisions.filter(d => d.session_id === s.id).length;
-    const dur    = s.ended_at
-      ? Math.floor((new Date(s.ended_at).getTime() - new Date(s.started_at).getTime()) / 60_000)
-      : null;
-    const durStr = dur != null ? (dur < 60 ? `${dur}m` : `${Math.floor(dur/60)}h${dur%60}m`) : "active";
-    const isDone = !!s.ended_at;
-    return `<div class="tl-row">
-      <span class="tl-id">${esc(s.id.slice(0,8))}</span>
-      <span class="tl-dot" style="color:${isDone ? "#00ff88" : "#ffaa00"}">${isDone ? "●" : "◌"}</span>
-      <span class="tl-sum">${esc((s.summary ?? "—").slice(0, 70))}</span>
-      <span class="tl-meta">${fCount}f · ${dCount}d · ${durStr}</span>
-      <span class="tl-time">${rel(s.started_at)}</span>
-    </div>`;
-  }).join("");
-
-  const scoreBar = (label: string, score: number, max: number, color: string) => {
-    const pct = Math.round((score / max) * 100);
-    return `<div class="sb-row">
-      <span class="sb-label">${esc(label)}</span>
-      <div class="sb-track">
-        <div class="sb-fill" style="width:${pct}%;background:${color}"></div>
-      </div>
-      <span class="sb-score" style="color:${color}">${score}<span class="sb-max">/${max}</span></span>
-    </div>`;
-  };
-
-  const fColor = meta.hFeatures >= 28 ? "#00ff88" : "#ffaa00";
-  const tColor = meta.hTests    >= 10 ? "#00ff88" : "#ff4444";
-  const aColor = meta.hArch     >= 10 ? "#00ff88" : "#ffaa00";
-  const cColor = meta.hClaims   === 10 ? "#00ff88" : "#ff4444";
-
-  return `<div class="health-wrap">
-    <div class="health-top">
-      <div class="ht-score-block">
-        <div class="ht-label">HEALTH SCORE</div>
-        <div class="ht-score" style="color:${hColor}">${meta.health}<span class="ht-max">/100</span></div>
-        <div class="ht-project">${esc(projectName)}</div>
-      </div>
-      <div class="ht-bars">
-        ${scoreBar("Features (40)", meta.hFeatures, 40, fColor)}
-        ${scoreBar("Tests (20)", meta.hTests, 20, tColor)}
-        ${scoreBar("Arch log (20)", meta.hArch, 20, aColor)}
-        ${scoreBar("Claims (10)", meta.hClaims, 10, cColor)}
-        ${scoreBar("Deploy (10)", 0, 10, "#555")}
-      </div>
-    </div>
-
-    <div class="health-mid">
-      <div class="debt-block">
-        <div class="section-label">DEBT TRACKER</div>
-        <div class="debt-grid">
-          <div class="debt-row"><span class="debt-icon" style="color:${staleDebt > 0 ? "#ff4444" : "#00ff88"}">${staleDebt > 0 ? "✗" : "✓"}</span><span class="debt-label">Stale claims</span><span class="debt-val">${staleDebt}</span></div>
-          <div class="debt-row"><span class="debt-icon" style="color:${testDebt > 0 ? "#ffaa00" : "#00ff88"}">${testDebt > 0 ? "⚠" : "✓"}</span><span class="debt-label">Missing test files</span><span class="debt-val">${testDebt}</span></div>
-          <div class="debt-row"><span class="debt-icon" style="color:${archDebt > 0 ? "#ffaa00" : "#00ff88"}">${archDebt > 0 ? "⚠" : "✓"}</span><span class="debt-label">Arch decisions needed</span><span class="debt-val">${archDebt}</span></div>
-          <div class="debt-row"><span class="debt-icon" style="color:${pendDebt > 5 ? "#ffaa00" : "#00ff88"}">${pendDebt > 5 ? "⚠" : "✓"}</span><span class="debt-label">Features pending</span><span class="debt-val">${pendDebt}</span></div>
-        </div>
-      </div>
-      <div class="rec-block">
-        <div class="section-label">RECOMMENDATIONS</div>
-        <ol class="rec-list">
-          ${recs.map(r => `<li>${esc(r)}</li>`).join("")}
-        </ol>
-      </div>
-    </div>
-
-    <div class="tl-block">
-      <div class="section-label">SESSION TIMELINE <span style="color:#555;font-size:.8rem">(last ${recentSessions.length})</span></div>
-      <div class="tl-rows">${sessionRows || '<div class="az-empty">No sessions yet</div>'}</div>
-    </div>
-  </div>`;
-}
-
-// ── Main HTML wrapper ─────────────────────────────────────────────────────────
-
-function renderHtml(data: DbData, projectName: string, dbPath: string, view: string): string {
-  const viewNow    = view === "now";
-  const viewPlan   = view === "plan";
-  const viewHealth = view === "health";
-
-  const tabBar = `
-    <nav class="tabs">
-      <a class="tab ${viewNow    ? "active" : ""}" href="?view=now">NOW</a>
-      <a class="tab ${viewPlan   ? "active" : ""}" href="?view=plan">PLAN</a>
-      <a class="tab ${viewHealth ? "active" : ""}" href="?view=health">HEALTH</a>
-      <span class="tab-right">
-        <span class="tab-proj">${esc(projectName)}</span>
-        <span class="tab-ver">groundctl</span>
-      </span>
-    </nav>`;
-
-  const content = viewPlan   ? renderPlan(data)
-                : viewHealth ? renderHealth(data, projectName)
-                :              renderNow(data, projectName);
-
-  const css = `
-:root{
-  --bg:#0d0d0d;--b2:#111;--b3:#161616;--br:#1e1e1e;--br2:#2a2a2a;
-  --tx:#e0e0e0;--dm:#555;--md:#888;
-  --gn:#00ff88;--yw:#ffaa00;--rd:#ff4444;--bl:#4488ff;
+const CSS = `
+:root {
+  --bg:#0d0d0d; --b2:#111; --b3:#161616; --b4:#1a1a1a;
+  --br:#1e1e1e; --br2:#2a2a2a;
+  --tx:#e0e0e0; --md:#888; --dm:#555;
+  --gn:#00ff88; --yw:#ffaa00; --rd:#ff4444; --bl:#4488ff;
   --mo:'Courier New',monospace;
 }
-*{box-sizing:border-box;margin:0;padding:0}
-html,body{height:100%;background:var(--bg);color:var(--tx);font-family:var(--mo);font-size:13px;line-height:1.55}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;background:var(--bg);color:var(--tx);font-family:var(--mo);font-size:14px;line-height:1.6}
 a{color:inherit;text-decoration:none}
+button{cursor:pointer;font-family:var(--mo);font-size:14px;border:none}
+code{font-family:var(--mo);font-size:13px}
 
-/* ── Tabs ── */
-.tabs{display:flex;align-items:center;border-bottom:1px solid var(--br);padding:0 24px;height:44px;gap:0;background:#0a0a0a;position:sticky;top:0;z-index:100}
-.tab{padding:0 18px;height:44px;display:flex;align-items:center;font-size:.8rem;letter-spacing:.12em;color:var(--md);border-bottom:2px solid transparent;cursor:pointer;transition:color .15s}
+/* Topbar */
+.topbar{display:flex;align-items:center;border-bottom:1px solid var(--br);background:#0a0a0a;position:sticky;top:0;z-index:100;height:48px;padding-right:24px}
+.tabs{display:flex;height:100%}
+.tab{padding:0 24px;height:48px;display:flex;align-items:center;font-size:14px;letter-spacing:.06em;color:var(--md);border-bottom:2px solid transparent;transition:color .15s}
 .tab:hover{color:var(--tx)}
 .tab.active{color:var(--gn);border-bottom-color:var(--gn)}
-.tab-right{margin-left:auto;display:flex;align-items:center;gap:16px;font-size:.75rem;color:var(--dm)}
-.tab-proj{color:var(--md)}
+.topbar-right{margin-left:auto;display:flex;align-items:center;gap:20px;font-size:14px}
+.tb-proj{color:var(--md)}
+.tb-pct{font-weight:700}
 
-/* ── Main content area ── */
-.view{padding:28px 32px;min-height:calc(100vh - 44px)}
+/* View */
+.view{padding:28px 32px;min-height:calc(100vh - 48px)}
 
-/* ── NOW view ── */
-.now-layout{display:grid;grid-template-columns:360px 1fr;gap:32px;align-items:start}
-.project-name{font-size:1.4rem;font-weight:700;color:#fff;margin-bottom:6px}
-.pct-label{font-size:1rem;margin-bottom:8px}
-.prog-bar{font-size:.9rem;letter-spacing:1px;margin-bottom:4px}
-.prog-sub{font-size:.8rem;color:var(--md);margin-bottom:24px}
-.stat-grid{display:flex;flex-direction:column;gap:6px;margin-bottom:24px;padding:14px 16px;background:var(--b2);border:1px solid var(--br);border-radius:6px}
-.stat-row{display:flex;justify-content:space-between;font-size:.82rem}
-.stat-label{color:var(--md)}
-.stat-val{color:var(--tx)}
-.health-block{padding:16px;background:var(--b2);border:1px solid var(--br);border-radius:6px}
-.section-label{font-size:.68rem;letter-spacing:.12em;text-transform:uppercase;color:var(--dm);margin-bottom:10px}
-.health-score{font-size:2.6rem;font-weight:700;margin:4px 0 14px}
-.health-max{font-size:1.2rem;color:var(--dm)}
-.health-bars{display:flex;flex-direction:column;gap:6px}
-.hbar-row{display:flex;align-items:center;gap:8px;font-size:.8rem}
-.hbar-label{width:58px;color:var(--md);font-size:.75rem}
-.hbar-track{letter-spacing:1px;font-size:.7rem}
-.hbar-score{color:var(--md);font-size:.75rem;margin-left:2px}
+/* Progress bar */
+.pbar-track{flex:1;height:5px;background:var(--br2);border-radius:3px;overflow:hidden}
+.pbar-fill{height:100%;border-radius:3px;transition:width .3s}
 
-/* ── Action zone (right column) ── */
-.now-right{display:flex;flex-direction:column;gap:16px}
-.az-section{background:var(--b2);border:1px solid var(--br);border-radius:6px;overflow:hidden}
-.az-title{padding:8px 14px;font-size:.68rem;letter-spacing:.12em;text-transform:uppercase;color:var(--dm);border-bottom:1px solid var(--br);background:var(--bg);display:flex;align-items:center;gap:8px}
-.az-count{background:var(--br2);color:var(--md);padding:1px 6px;border-radius:3px;font-size:.7rem;letter-spacing:0}
-.az-row{display:flex;align-items:center;gap:10px;padding:9px 14px;border-bottom:1px solid var(--br);font-size:.85rem}
-.az-row:last-child{border-bottom:none}
-.az-icon{font-size:.9rem;width:16px;text-align:center}
-.az-name{flex:1;color:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.az-meta{color:var(--dm);font-size:.78rem}
-.az-time{font-size:.78rem}
-.az-needs{font-size:.78rem;color:#ff4444}
-.az-pri{font-size:.75rem}
-.az-empty{padding:12px 14px;color:var(--dm);font-size:.82rem}
-.next-box{padding:12px 14px;display:flex;align-items:center;gap:10px}
-.next-name{font-size:.95rem;color:#fff;font-weight:600}
-.next-hint{font-size:.75rem;color:var(--dm);margin-left:4px}
-.p-critical{color:#ff4444}.p-high{color:#ffaa00}.p-medium{color:var(--md)}.p-low{color:var(--dm)}
+/* ─── LE PLAN ─── */
+.plan-view{display:flex;flex-direction:column;gap:32px}
+.plan-legend{display:flex;gap:16px;align-items:center;flex-wrap:wrap;font-size:14px;color:var(--md);padding-bottom:12px;border-bottom:1px solid var(--br)}
+.leg-sep{color:var(--dm)}
+.plan-group{display:flex;flex-direction:column;gap:14px}
+.pg-header{display:flex;align-items:center;gap:16px}
+.pg-name{font-size:15px;font-weight:700;color:#fff;letter-spacing:.06em;text-transform:uppercase;min-width:170px}
+.pg-prog{flex:1;max-width:200px}
+.pg-bar-track{height:4px;background:var(--br2);border-radius:2px;overflow:hidden}
+.pg-bar-fill{height:100%;border-radius:2px}
+.pg-count{font-size:14px;color:var(--md)}
+.feat-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px}
+.feat-card{background:var(--b2);border:1px solid var(--br);border-radius:8px;padding:18px;cursor:pointer;transition:border-color .15s,background .15s;display:flex;flex-direction:column;gap:9px}
+.feat-card:hover{border-color:var(--br2);background:var(--b3)}
+.feat-card.s-done{border-color:rgba(0,255,136,.12)}
+.feat-card.s-in_progress{border-color:rgba(255,170,0,.3);background:rgba(255,170,0,.03)}
+.feat-card.s-blocked{border-color:rgba(255,68,68,.2)}
+.fc-top{display:flex;align-items:center;gap:10px}
+.fc-icon{font-size:16px;width:20px;text-align:center}
+.fc-name{flex:1;font-size:14px;font-weight:700;color:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fc-pri{font-size:12px;padding:1px 7px;border-radius:3px}
+.p-critical{color:#ff4444;background:rgba(255,68,68,.1)}
+.p-high{color:#ffaa00;background:rgba(255,170,0,.1)}
+.p-medium{color:var(--md);background:var(--br)}
+.p-low{color:var(--dm);background:var(--br)}
+.fc-desc{font-size:14px;color:var(--md);line-height:1.5}
+.fc-prog{display:flex;align-items:center;gap:10px}
+.fc-pgnum{font-size:13px;color:var(--md);white-space:nowrap}
+.fc-deps{font-size:13px;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.fc-deps.ok{color:var(--dm)}
+.dep-tag{color:#ff4444;background:rgba(255,68,68,.1);padding:1px 6px;border-radius:3px;font-size:12px}
+.dep-ok{color:var(--dm)}
 
-/* ── PLAN view ── */
-.plan-wrap{display:flex;flex-direction:column;gap:28px}
-.dag-legend{font-size:.8rem;color:var(--md);display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin-bottom:8px}
-.dag-sep{color:var(--dm)}
-.dag-group{background:var(--b2);border:1px solid var(--br);border-radius:6px;overflow:hidden}
-.dag-group-header{padding:9px 16px;border-bottom:1px solid var(--br);background:var(--bg);display:flex;align-items:center;gap:12px}
-.dag-group-name{font-size:.7rem;letter-spacing:.1em;text-transform:uppercase;color:var(--md)}
-.dag-group-meta{font-size:.7rem;color:var(--dm)}
-.dag-chains{padding:16px;display:flex;flex-direction:column;gap:10px}
-.dag-chain{display:flex;align-items:center;flex-wrap:wrap;gap:4px}
-.dag-node{padding:4px 10px;border:1px solid var(--br2);border-radius:3px;font-size:.82rem;cursor:pointer;transition:border-color .15s,background .15s}
-.dag-node:hover{border-color:var(--md);background:var(--b3)}
-.dag-arrow{color:var(--dm);padding:0 4px;font-size:.9rem}
-.s-done{color:#00ff88}.s-active{color:#ffaa00}.s-pending{color:var(--md)}.s-blocked{color:#ff4444}
-.dag-node.s-done{border-color:rgba(0,255,136,.15)}
-.dag-node.s-active{border-color:rgba(255,170,0,.3);background:rgba(255,170,0,.04)}
-.dag-node.s-blocked{border-color:rgba(255,68,68,.2)}
-
-/* ── Popup modal ── */
-.popup-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:1000;align-items:center;justify-content:center}
+/* Popup */
+.popup-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.82);z-index:1000;align-items:center;justify-content:center}
 .popup-overlay.open{display:flex}
-.popup-box{background:#111;border:1px solid var(--br2);border-radius:8px;padding:24px;min-width:380px;max-width:560px;position:relative;max-height:80vh;overflow-y:auto}
-.popup-close{position:absolute;top:14px;right:16px;color:var(--dm);cursor:pointer;font-size:1rem}
+.popup-box{background:#111;border:1px solid var(--br2);border-radius:10px;padding:28px;min-width:420px;max-width:580px;max-height:82vh;overflow-y:auto;position:relative}
+.popup-close{position:absolute;top:16px;right:18px;background:none;border:none;color:var(--dm);font-size:16px;cursor:pointer}
 .popup-close:hover{color:var(--tx)}
-.popup-name{font-size:1rem;font-weight:700;color:#fff;margin-bottom:12px}
-.popup-meta{display:flex;gap:12px;margin-bottom:12px;font-size:.8rem}
-.popup-section{margin-top:12px}
-.popup-slabel{font-size:.68rem;text-transform:uppercase;letter-spacing:.1em;color:var(--dm);margin-bottom:4px}
-.popup-text{font-size:.85rem;color:var(--md);line-height:1.6}
-.popup-item{font-size:.82rem;color:var(--md);padding:2px 0}
+.popup-name{font-size:18px;font-weight:700;color:#fff;margin-bottom:14px}
+.popup-meta{display:flex;gap:14px;margin-bottom:14px;font-size:14px}
+.popup-section{margin-top:16px}
+.popup-slabel{font-size:12px;text-transform:uppercase;letter-spacing:.1em;color:var(--dm);margin-bottom:6px}
+.popup-text{font-size:14px;color:var(--md);line-height:1.6}
+.popup-item{font-size:14px;color:var(--md);padding:3px 0}
 .popup-item::before{content:"· ";color:var(--dm)}
+.popup-cmd{margin-top:18px;padding:12px 14px;background:var(--b4);border-radius:6px;border:1px solid var(--br);font-size:13px;color:var(--md)}
+.popup-launch-btn{display:inline-flex;align-items:center;gap:8px;margin-top:14px;padding:10px 20px;background:rgba(0,255,136,.1);border:1px solid rgba(0,255,136,.3);border-radius:6px;color:var(--gn);font-size:14px;font-weight:700;font-family:var(--mo)}
+.popup-launch-btn:hover{background:rgba(0,255,136,.2)}
+.popup-launch-btn:disabled{opacity:.4;cursor:not-allowed}
 
-/* ── HEALTH view ── */
-.health-wrap{display:flex;flex-direction:column;gap:24px}
-.health-top{display:grid;grid-template-columns:200px 1fr;gap:32px;background:var(--b2);border:1px solid var(--br);border-radius:6px;padding:24px}
-.ht-label{font-size:.68rem;letter-spacing:.12em;text-transform:uppercase;color:var(--dm);margin-bottom:8px}
-.ht-score{font-size:3.5rem;font-weight:700;line-height:1}
-.ht-max{font-size:1.5rem;color:var(--dm)}
-.ht-project{font-size:.82rem;color:var(--md);margin-top:8px}
-.ht-bars{display:flex;flex-direction:column;gap:14px;justify-content:center}
-.sb-row{display:flex;align-items:center;gap:12px}
-.sb-label{width:110px;font-size:.82rem;color:var(--md)}
-.sb-track{flex:1;height:4px;background:var(--br2);border-radius:2px;overflow:hidden}
-.sb-fill{height:100%;border-radius:2px;transition:width .3s}
-.sb-score{width:50px;text-align:right;font-size:.82rem}
-.sb-max{color:var(--dm)}
-.health-mid{display:grid;grid-template-columns:1fr 1fr;gap:24px}
-.debt-block,.rec-block{background:var(--b2);border:1px solid var(--br);border-radius:6px;padding:16px}
-.debt-grid{display:flex;flex-direction:column;gap:8px}
-.debt-row{display:flex;align-items:center;gap:8px;font-size:.85rem}
-.debt-icon{width:16px;text-align:center}
-.debt-label{flex:1;color:var(--md)}
-.debt-val{color:var(--tx);text-align:right}
-.rec-list{list-style:none;display:flex;flex-direction:column;gap:8px}
-.rec-list li{font-size:.83rem;color:var(--md);padding-left:16px;position:relative;line-height:1.5}
-.rec-list li::before{content:counter(li-counter) ".";counter-increment:li-counter;position:absolute;left:0;color:var(--gn)}
-.rec-list{counter-reset:li-counter}
-.tl-block{background:var(--b2);border:1px solid var(--br);border-radius:6px;padding:16px}
-.tl-rows{display:flex;flex-direction:column;gap:2px;margin-top:8px}
-.tl-row{display:grid;grid-template-columns:70px 14px 1fr 100px 80px;gap:8px;padding:7px 8px;border-radius:4px;font-size:.8rem;align-items:center}
-.tl-row:hover{background:var(--b3)}
-.tl-id{color:var(--bl);font-weight:600;font-size:.75rem}
-.tl-dot{font-size:.7rem}
-.tl-sum{color:var(--md);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.tl-meta{color:var(--dm);font-size:.75rem;text-align:right}
-.tl-time{color:var(--dm);font-size:.75rem;text-align:right}
+/* ─── LE CHANTIER ─── */
+.chantier-view{display:flex;flex-direction:column;gap:28px}
+.ch-section{display:flex;flex-direction:column;gap:14px}
+.ch-title{font-size:14px;letter-spacing:.1em;text-transform:uppercase;color:var(--dm);display:flex;align-items:center;gap:10px;padding-bottom:10px;border-bottom:1px solid var(--br)}
+.ch-ct{background:var(--br2);color:var(--md);padding:1px 7px;border-radius:3px;font-size:13px;letter-spacing:0}
+.ch-empty{font-size:14px;color:var(--dm);padding:8px 0}
+.ch-empty.ok{color:var(--md)}
+.agent-card{background:var(--b2);border:1px solid var(--br);border-radius:8px;padding:18px;display:flex;flex-direction:column;gap:8px}
+.agent-card.stale{border-color:rgba(255,68,68,.35);background:rgba(255,68,68,.04)}
+.ac-header{display:flex;align-items:center;gap:12px}
+.ac-dot{font-size:18px}
+.ac-name{flex:1;font-size:16px;font-weight:700;color:#fff}
+.ac-badge{padding:2px 10px;border-radius:4px;font-size:13px}
+.ac-badge.active{color:#ffaa00;background:rgba(255,170,0,.12);border:1px solid rgba(255,170,0,.3)}
+.ac-badge.stale{color:#ff4444;background:rgba(255,68,68,.12);border:1px solid rgba(255,68,68,.3)}
+.ac-meta{font-size:14px;color:var(--md)}
+.ac-meta code{color:var(--bl)}
+.ac-warn{font-size:14px;color:#ff4444}
+.ac-warn code{color:var(--md)}
+.launch-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px}
+.launch-card{background:var(--b2);border:1px solid var(--br);border-radius:8px;padding:18px;display:flex;flex-direction:column;gap:10px}
+.lc-header{display:flex;align-items:center;gap:10px}
+.lc-name{flex:1;font-size:15px;font-weight:700;color:#fff}
+.lc-meta{display:flex;gap:10px;align-items:center;font-size:13px}
+.lc-group{color:var(--dm);background:var(--br);padding:1px 6px;border-radius:3px}
+.lc-desc{font-size:14px;color:var(--md)}
+.launch-btn{margin-top:4px;padding:10px 18px;background:rgba(0,255,136,.1);border:1px solid rgba(0,255,136,.3);border-radius:6px;color:var(--gn);font-size:14px;font-weight:700;font-family:var(--mo);align-self:flex-start;transition:background .15s}
+.launch-btn:hover{background:rgba(0,255,136,.2)}
+.launch-btn:disabled{opacity:.4;cursor:not-allowed}
+.blocked-list{display:flex;flex-direction:column;gap:10px}
+.blocked-row{display:flex;align-items:center;gap:12px;background:var(--b2);border:1px solid rgba(255,68,68,.15);border-radius:8px;padding:14px 16px;font-size:14px}
+.br-icon{color:#ff4444;font-size:16px}
+.br-name{font-weight:700;color:#fff;min-width:200px}
+.br-needs{color:var(--md);display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.br-dep{color:#ff4444}
+.alert-row{padding:14px 18px;border-radius:8px;font-size:14px}
+.alert-row.warn{color:#ffaa00;background:rgba(255,170,0,.07);border:1px solid rgba(255,170,0,.2)}
+.alert-row.warn code{color:var(--md)}
 
-/* ── Footer ── */
-.footer{padding:12px 32px;border-top:1px solid var(--br);font-size:.72rem;color:var(--dm);display:flex;justify-content:space-between}
+/* ─── LES CORPS DE MÉTIER ─── */
+.metiers-view{display:flex;flex-direction:column;gap:24px}
+.metier-card{background:var(--b2);border:1px solid var(--br);border-radius:10px;overflow:hidden}
+.mc-header{display:flex;align-items:center;gap:16px;padding:16px 20px;background:var(--b4);border-bottom:1px solid var(--br)}
+.mc-name{font-size:16px;font-weight:700;color:#fff;text-transform:uppercase;letter-spacing:.06em;min-width:180px}
+.mc-prog{flex:1;max-width:240px}
+.mc-bar-track{height:5px;background:var(--br2);border-radius:3px;overflow:hidden}
+.mc-bar-fill{height:100%;border-radius:3px}
+.mc-count{font-size:14px;font-weight:600}
+.mt-feats{display:flex;flex-direction:column}
+.mt-feat-row{display:grid;grid-template-columns:26px 1fr 160px auto 44px;gap:12px;align-items:center;padding:12px 20px;border-bottom:1px solid var(--br);font-size:14px}
+.mt-feat-row:last-child{border-bottom:none}
+.mt-icon{font-size:15px;text-align:center}
+.mt-name{font-weight:600;color:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mt-name.s-done{color:var(--md);opacity:.7}
+.mt-name.s-blocked{color:#ff4444}
+.mt-bar{display:flex;align-items:center}
+.mt-desc{font-size:13px;color:var(--dm);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mt-launch{padding:5px 10px;background:rgba(0,255,136,.08);border:1px solid rgba(0,255,136,.25);border-radius:4px;color:var(--gn);font-size:13px;font-family:var(--mo)}
+.mt-launch:hover{background:rgba(0,255,136,.16)}
+.mt-launch:disabled{opacity:.4;cursor:not-allowed}
+.mt-parallel{padding:14px 20px;border-top:1px solid var(--br);display:flex;align-items:center;gap:14px;flex-wrap:wrap;font-size:14px}
+.mt-parallel.dim{color:var(--dm)}
+.mt-parallel.ok{color:var(--md)}
+.mt-para-label{color:var(--dm);font-size:13px}
+.mt-para-pair{display:flex;align-items:center;gap:10px}
+.launch-btn-sm{padding:6px 12px;background:rgba(0,255,136,.08);border:1px solid rgba(0,255,136,.25);border-radius:4px;color:var(--gn);font-size:13px;font-family:var(--mo)}
+.launch-btn-sm:hover{background:rgba(0,255,136,.16)}
+.launch-btn-sm:disabled{opacity:.4;cursor:not-allowed}
+
+/* Toast */
+.toast{position:fixed;bottom:24px;right:24px;background:#111;border:1px solid var(--br2);border-radius:8px;padding:14px 20px;font-size:14px;color:var(--tx);box-shadow:0 4px 24px rgba(0,0,0,.6);transform:translateY(80px);opacity:0;transition:transform .25s,opacity .25s;z-index:500;min-width:280px;pointer-events:none}
+.toast.show{transform:translateY(0);opacity:1}
+
+/* Footer */
+.footer{padding:12px 32px;border-top:1px solid var(--br);font-size:13px;color:var(--dm);display:flex;justify-content:space-between}
 
 @media(max-width:900px){
-  .now-layout{grid-template-columns:1fr}
-  .health-top{grid-template-columns:1fr}
-  .health-mid{grid-template-columns:1fr}
+  .feat-grid,.launch-grid{grid-template-columns:1fr}
+  .mt-feat-row{grid-template-columns:26px 1fr 44px}
+  .mt-bar,.mt-desc{display:none}
 }`;
 
-  const js = `
-function showPopup(jsonStr) {
-  const d = JSON.parse(jsonStr);
-  const el = document.getElementById('popup-content');
-  const si = (s) => s === 'done' ? '✓' : s === 'in_progress' ? '●' : s === 'blocked' ? '⊘' : '○';
-  const sc = (s) => s === 'done' ? '#00ff88' : s === 'in_progress' ? '#ffaa00' : s === 'blocked' ? '#ff4444' : '#888';
-  let h = '<div class="popup-name">' + esc(d.name) + '</div>';
-  h += '<div class="popup-meta">';
-  h += '<span style="color:' + sc(d.status) + '">' + si(d.status) + ' ' + d.status + '</span>';
-  h += '<span style="color:#555">·</span>';
-  h += '<span style="color:#888">' + d.priority + '</span>';
-  if (d.progress) h += '<span style="color:#555">·</span><span style="color:#888">' + esc(d.progress) + '</span>';
-  h += '</div>';
-  if (d.description) {
-    h += '<div class="popup-section"><div class="popup-slabel">Description</div><div class="popup-text">' + esc(d.description) + '</div></div>';
+// ── JS ───────────────────────────────────────────────────────────────────────
+
+const JS = `
+function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
+function statusColor(s){return s==='done'?'#00ff88':s==='in_progress'?'#ffaa00':s==='blocked'?'#ff4444':'#888'}
+function statusIcon(s){return s==='done'?'✓':s==='in_progress'?'●':s==='blocked'?'⊘':'○'}
+
+function showPopup(jsonStr){
+  const d=JSON.parse(jsonStr);
+  const el=document.getElementById('popup-content');
+  const col=statusColor(d.status);
+  let h='<div class="popup-name">'+esc(d.name)+'</div>';
+  h+='<div class="popup-meta"><span style="color:'+col+'">'+statusIcon(d.status)+' '+d.status+'</span><span style="color:#555">·</span><span style="color:#888">'+esc(d.priority)+'</span>';
+  if(d.progress)h+='<span style="color:#555">·</span><span style="color:#888">'+esc(d.progress)+'</span>';
+  h+='</div>';
+  if(d.description)h+='<div class="popup-section"><div class="popup-slabel">Description</div><div class="popup-text">'+esc(d.description)+'</div></div>';
+  if(d.items&&d.items.length>0){
+    h+='<div class="popup-section"><div class="popup-slabel">Items</div>';
+    d.items.forEach(function(i){h+='<div class="popup-item">'+esc(i)+'</div>';});
+    h+='</div>';
   }
-  if (d.items && d.items.length > 0) {
-    h += '<div class="popup-section"><div class="popup-slabel">Items</div>';
-    d.items.forEach(function(item) { h += '<div class="popup-item">' + esc(item) + '</div>'; });
-    h += '</div>';
+  if(d.deps&&d.deps.length>0){
+    h+='<div class="popup-section"><div class="popup-slabel">Dépendances</div>';
+    d.deps.forEach(function(dep){h+='<div style="font-size:14px;color:'+statusColor(dep.status)+';padding:3px 0">'+statusIcon(dep.status)+' '+esc(dep.name)+'</div>';});
+    h+='</div>';
   }
-  if (d.deps && d.deps.length > 0) {
-    h += '<div class="popup-section"><div class="popup-slabel">Depends on</div><div class="popup-text">' + d.deps.map(esc).join(', ') + '</div></div>';
+  if(d.status!=='done'){
+    h+='<button class="popup-launch-btn" id="popup-launch-btn" onclick="launchFeature('+JSON.stringify(d.id)+','+JSON.stringify(d.name)+',this)">▶ LAUNCH</button>';
   }
-  h += '<div class="popup-section" style="margin-top:16px"><code style="font-size:.8rem;color:#555">groundctl claim "' + esc(d.name) + '"</code></div>';
-  el.innerHTML = h;
+  h+='<div class="popup-cmd">groundctl claim "'+esc(d.name)+'"</div>';
+  el.innerHTML=h;
   document.getElementById('popup').classList.add('open');
 }
-function closePopup() { document.getElementById('popup').classList.remove('open'); }
-function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
-document.addEventListener('keydown', function(e) { if (e.key === 'Escape') closePopup(); });
-setInterval(function() { location.reload(); }, 10000);`;
+function closePopup(){document.getElementById('popup').classList.remove('open')}
+document.addEventListener('keydown',function(e){if(e.key==='Escape')closePopup();});
+
+function showToast(msg,isErr){
+  const t=document.getElementById('launch-toast');
+  if(!t)return;
+  t.textContent=msg;
+  t.style.borderColor=isErr?'rgba(255,68,68,.4)':'rgba(0,255,136,.4)';
+  t.classList.add('show');
+  setTimeout(function(){t.classList.remove('show');},3500);
+}
+
+async function launchFeature(id,name,btn){
+  if(btn){btn.textContent='…';btn.disabled=true;}
+  try{
+    const r=await fetch('/api/claim',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({featureId:id})});
+    const data=await r.json();
+    if(data.ok){
+      showToast('✓ "'+name+'" claimed — lancez claude dans le terminal');
+      closePopup();
+      setTimeout(function(){location.reload();},900);
+    }else{
+      showToast('✗ '+(data.error||'Erreur'),true);
+      if(btn){btn.textContent='▶ LAUNCH';btn.disabled=false;}
+    }
+  }catch(e){
+    showToast('✗ Erreur réseau',true);
+    if(btn){btn.textContent='▶ LAUNCH';btn.disabled=false;}
+  }
+}
+
+setInterval(function(){location.reload();},5000);
+`;
+
+// ── renderHtml ───────────────────────────────────────────────────────────────
+
+function renderHtml(data: DbData, projectName: string, dbPath: string, view: string): string {
+  const isPlan     = view === "plan";
+  const isChantier = view === "chantier";
+  const isMetiers  = !isPlan && !isChantier;
+
+  const pColor = data.meta.pct    >= 70 ? "#00ff88" : data.meta.pct    >= 40 ? "#ffaa00" : "#ff4444";
+  const hColor = data.meta.health >= 70 ? "#00ff88" : data.meta.health >= 40 ? "#ffaa00" : "#ff4444";
+
+  const topbar = `<header class="topbar">
+  <nav class="tabs">
+    <a class="tab ${isPlan     ? "active" : ""}" href="?view=plan">LE PLAN</a>
+    <a class="tab ${isChantier ? "active" : ""}" href="?view=chantier">LE CHANTIER</a>
+    <a class="tab ${isMetiers  ? "active" : ""}" href="?view=metiers">LES CORPS DE MÉTIER</a>
+  </nav>
+  <div class="topbar-right">
+    <span class="tb-proj">${esc(projectName)}</span>
+    <span class="tb-pct" style="color:${pColor}">${data.meta.pct}%</span>
+    <span style="color:${hColor};font-size:14px">⬡ ${data.meta.health}/100</span>
+  </div>
+</header>`;
+
+  const content = isPlan     ? renderPlan(data)
+                : isChantier ? renderChantier(data)
+                :              renderMetiers(data);
 
   return `<!DOCTYPE html>
-<html lang="en">
+<html lang="fr">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${esc(projectName)} — groundctl dashboard</title>
-<style>${css}</style>
+<title>${esc(projectName)} — groundctl</title>
+<style>${CSS}</style>
 </head>
 <body>
-${tabBar}
+${topbar}
 <div class="view">${content}</div>
 <div class="footer">
   <span>${esc(dbPath.split("/").slice(-3).join("/"))}</span>
-  <span>auto-refresh 10s · ${data.meta.total} features · ${data.sessions.length} sessions</span>
+  <span>auto-refresh 5s · ${data.meta.total} features · ${data.sessions.length} sessions</span>
 </div>
-<script>${js}</script>
+<script>${JS}</script>
 </body>
 </html>`;
 }
@@ -758,17 +764,37 @@ export async function dashboardCommand(options: { port?: string }): Promise<void
 
   const server = createServer(async (req, res) => {
     const reqUrl = new URL(req.url ?? "/", `http://localhost:${port}`);
+    const dbPath = findDbPath();
+
+    // POST /api/claim
+    if (req.method === "POST" && reqUrl.pathname === "/api/claim") {
+      res.setHeader("Content-Type", "application/json");
+      if (!dbPath) { res.writeHead(404); res.end(JSON.stringify({ok:false,error:"No DB"})); return; }
+      const chunks: Buffer[] = [];
+      req.on("data", c => chunks.push(c));
+      req.on("end", async () => {
+        try {
+          const body   = JSON.parse(Buffer.concat(chunks).toString());
+          const result = await claimFeatureInDb(dbPath, body.featureId ?? body.feature ?? "");
+          res.writeHead(result.ok ? 200 : 400);
+          res.end(JSON.stringify(result));
+        } catch (e) {
+          res.writeHead(400);
+          res.end(JSON.stringify({ok:false,error:(e as Error).message}));
+        }
+      });
+      return;
+    }
 
     if (reqUrl.pathname !== "/" && reqUrl.pathname !== "") {
       res.writeHead(404); res.end("Not found"); return;
     }
 
-    const view   = reqUrl.searchParams.get("view") ?? "now";
-    const dbPath = findDbPath();
+    const view = reqUrl.searchParams.get("view") ?? "plan";
 
     if (!dbPath) {
       res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-      res.end(`<!DOCTYPE html><html><body style="background:#0d0d0d;color:#e0e0e0;font-family:'Courier New',monospace;padding:48px">
+      res.end(`<!DOCTYPE html><html><body style="background:#0d0d0d;color:#e0e0e0;font-family:'Courier New',monospace;padding:48px;font-size:14px">
         <h2 style="color:#00ff88">groundctl</h2>
         <p style="color:#ff4444;margin-top:16px">No .groundctl/db.sqlite found.</p>
         <p style="margin-top:12px;color:#555">Run: <code style="color:#e0e0e0">groundctl init</code></p>
@@ -783,20 +809,18 @@ export async function dashboardCommand(options: { port?: string }): Promise<void
       res.end(renderHtml(data, name, dbPath, view));
     } catch (err) {
       res.writeHead(500, { "Content-Type": "text/plain" });
-      res.end(`Error reading database: ${(err as Error).message}`);
+      res.end(`Error: ${(err as Error).message}`);
     }
   });
 
   server.listen(port, "127.0.0.1", () => {
-    console.log(chalk.bold(`\n  groundctl dashboard v2\n`));
-    console.log(`  ${chalk.dim("NOW")}  ${chalk.blue(`http://localhost:${port}?view=now`)}`);
-    console.log(`  ${chalk.dim("PLAN")} ${chalk.blue(`http://localhost:${port}?view=plan`)}`);
-    console.log(`  ${chalk.dim("HLTH")} ${chalk.blue(`http://localhost:${port}?view=health`)}\n`);
-    console.log(chalk.gray("  Auto-refreshes every 10s. Press Ctrl+C to stop.\n"));
-    exec(`open http://localhost:${port}?view=now 2>/dev/null || xdg-open http://localhost:${port}?view=now 2>/dev/null || true`);
+    console.log(chalk.bold(`\n  groundctl dashboard v3\n`));
+    console.log(`  ${chalk.green("LE PLAN")}           ${chalk.blue(`http://localhost:${port}?view=plan`)}`);
+    console.log(`  ${chalk.yellow("LE CHANTIER")}      ${chalk.blue(`http://localhost:${port}?view=chantier`)}`);
+    console.log(`  ${chalk.cyan("LES CORPS DE MÉTIER")} ${chalk.blue(`http://localhost:${port}?view=metiers`)}\n`);
+    console.log(chalk.gray("  Auto-refresh 5s. Ctrl+C to stop.\n"));
+    exec(`open "http://localhost:${port}?view=plan" 2>/dev/null || xdg-open "http://localhost:${port}?view=plan" 2>/dev/null || true`);
   });
 
-  await new Promise<void>((_, reject) => {
-    server.on("error", reject);
-  });
+  await new Promise<void>((_, reject) => { server.on("error", reject); });
 }

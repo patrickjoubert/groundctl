@@ -17,6 +17,9 @@ import { watchCommand } from "./commands/watch.js";
 import { updateCommand } from "./commands/update.js";
 import { doctorCommand } from "./commands/doctor.js";
 import { planCommand } from "./commands/plan.js";
+import { launchCommand } from "./commands/launch.js";
+import { agentsCommand } from "./commands/agents.js";
+import { staleCommand } from "./commands/stale.js";
 import chalk from "chalk";
 
 const require = createRequire(import.meta.url);
@@ -166,6 +169,21 @@ program
       group:  opts.group,
     })
   );
+
+program
+  .command("launch <feature>")
+  .description("Claim a feature and launch a Claude Code session")
+  .action(launchCommand);
+
+program
+  .command("agents")
+  .description("List active agents (claims) with duration and status")
+  .action(agentsCommand);
+
+program
+  .command("stale")
+  .description("List and release stale claims (>2h inactive)")
+  .action(staleCommand);
 
 // ── Unknown command handler ──────────────────────────────────────────────────
 program.on("command:*", (operands: string[]) => {

@@ -1,6 +1,6 @@
 {
   "name": "@groundctl/cli",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "Always know what to build next.",
   "license": "MIT",
   "bin": {
