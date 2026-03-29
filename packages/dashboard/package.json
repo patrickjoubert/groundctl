@@ -1,0 +1,13 @@
+{
+  "name": "@groundctl/dashboard",
+  "version": "0.1.1",
+  "description": "groundctl web dashboard",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node src/server.js"
+  },
+  "dependencies": {
+    "sql.js": "^1.10.0"
+  }
+}

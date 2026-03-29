@@ -11,11 +11,12 @@ import { logCommand } from "./commands/log.js";
 import { addCommand } from "./commands/add.js";
 import { ingestCommand } from "./commands/ingest.js";
 import { reportCommand } from "./commands/report.js";
+import { healthCommand } from "./commands/health.js";
+import { dashboardCommand } from "./commands/dashboard.js";
 
 const require = createRequire(import.meta.url);
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const pkg = require("../package.json") as { version: string };
-import { healthCommand } from "./commands/health.js";
 
 const program = new Command();
 
@@ -100,5 +101,11 @@ program
   .command("health")
   .description("Show product health score")
   .action(healthCommand);
+
+program
+  .command("dashboard")
+  .description("Start web dashboard on port 4242")
+  .option("-p, --port <port>", "Port number", "4242")
+  .action(dashboardCommand);
 
 program.parse();

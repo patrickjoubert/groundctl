@@ -3,18 +3,40 @@ import { randomUUID } from "node:crypto";
 import { openDb, closeDb, saveDb } from "../storage/db.js";
 import { query, queryOne } from "../storage/query.js";
 
+/**
+ * Find a feature by exact id/name first, then prefix match, then substring match.
+ * This prevents "demo" from matching "multi-agent-demo" when "demo" exists.
+ */
+function findFeature(db: ReturnType<typeof queryOne> extends null ? never : Parameters<typeof queryOne>[0], term: string) {
+  return queryOne<{ id: string; name: string; status: string }>(
+    db as Parameters<typeof queryOne>[0],
+    `SELECT id, name, status FROM features
+     WHERE id = ? OR name = ?
+     UNION ALL
+     SELECT id, name, status FROM features
+     WHERE (id LIKE ? OR name LIKE ?)
+       AND id != ? AND name != ?
+     UNION ALL
+     SELECT id, name, status FROM features
+     WHERE (id LIKE ? OR name LIKE ?)
+       AND id NOT LIKE ? AND name NOT LIKE ?
+       AND id != ? AND name != ?
+     LIMIT 1`,
+    [
+      term, term,
+      `${term}%`, `${term}%`, term, term,
+      `%${term}%`, `%${term}%`, `${term}%`, `${term}%`, term, term,
+    ]
+  );
+}
+
 export async function claimCommand(
   featureIdOrName: string,
   options: { session?: string }
 ): Promise<void> {
   const db = await openDb();
 
-  const feature = queryOne<{ id: string; name: string; status: string }>(
-    db,
-    `SELECT id, name, status FROM features
-     WHERE id = ? OR name = ? OR name LIKE ?`,
-    [featureIdOrName, featureIdOrName, `%${featureIdOrName}%`]
-  );
+  const feature = findFeature(db as any, featureIdOrName);
 
   if (!feature) {
     console.log(chalk.red(`\n  Feature "${featureIdOrName}" not found.\n`));
@@ -100,12 +122,7 @@ export async function claimCommand(
 export async function completeCommand(featureIdOrName: string): Promise<void> {
   const db = await openDb();
 
-  const feature = queryOne<{ id: string; name: string; status: string }>(
-    db,
-    `SELECT id, name, status FROM features
-     WHERE id = ? OR name = ? OR name LIKE ?`,
-    [featureIdOrName, featureIdOrName, `%${featureIdOrName}%`]
-  );
+  const feature = findFeature(db as any, featureIdOrName);
 
   if (!feature) {
     console.log(chalk.red(`\n  Feature "${featureIdOrName}" not found.\n`));

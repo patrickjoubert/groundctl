@@ -4,6 +4,8 @@
 
 When Claude Code builds your product across sessions, nobody remembers what was built, what's left, or what's in progress. groundctl fixes that — for you and for your agents.
 
+![groundctl demo](site/demo.svg)
+
 ## The problem
 
 - **You** lose track of what was built across sessions
@@ -94,6 +96,10 @@ The agent never starts from zero again.
 | `groundctl next` | Show next available feature |
 | `groundctl sync` | Regenerate markdown from SQLite |
 | `groundctl log` | Session timeline |
+| `groundctl report` | Generate SESSION_REPORT.md |
+| `groundctl health` | Quality score + debt tracker |
+| `groundctl ingest` | Parse transcript → SQLite |
+| `groundctl dashboard` | Web dashboard at port 4242 |
 
 ## Claiming system
 
