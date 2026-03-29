@@ -2,7 +2,6 @@ import chalk from "chalk";
 import { openDb, closeDb, saveDb } from "../storage/db.js";
 import { queryOne } from "../storage/query.js";
 
-/** Parse "11/11" → { done: 11, total: 11 }, or null on bad input. */
 function parseProgress(s: string): { done: number; total: number } | null {
   const m = s.match(/^(\d+)\/(\d+)$/);
   if (!m) return null;
@@ -15,6 +14,7 @@ interface UpdateOptions {
   progress?: string;
   priority?: string;
   status?: string;
+  group?: string;
 }
 
 export async function updateCommand(
@@ -29,7 +29,6 @@ export async function updateCommand(
 
   const db = await openDb();
 
-  // Find the feature: exact id → exact name → substring match
   const feature = queryOne<{ id: string; name: string }>(
     db,
     `SELECT id, name FROM features
@@ -78,6 +77,28 @@ export async function updateCommand(
   if (options.status !== undefined) {
     sets.push("status = ?");
     params.push(options.status);
+  }
+
+  // --group: resolve group name → id
+  if (options.group !== undefined) {
+    if (options.group === "" || options.group === "none") {
+      sets.push("group_id = ?");
+      params.push(null);
+    } else {
+      const slug = options.group.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-|-$/g, "");
+      const grp = queryOne<{ id: number; label: string }>(
+        db,
+        "SELECT id, label FROM feature_groups WHERE name = ? OR label = ? LIMIT 1",
+        [slug, options.group]
+      );
+      if (!grp) {
+        console.log(chalk.red(`\n  Group "${options.group}" not found. Create it first:\n  groundctl add group -n "${slug}" --label "${options.group}"\n`));
+        closeDb();
+        process.exit(1);
+      }
+      sets.push("group_id = ?");
+      params.push(grp.id);
+    }
   }
 
   if (sets.length === 0) {

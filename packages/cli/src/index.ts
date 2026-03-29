@@ -15,6 +15,8 @@ import { healthCommand } from "./commands/health.js";
 import { dashboardCommand } from "./commands/dashboard.js";
 import { watchCommand } from "./commands/watch.js";
 import { updateCommand } from "./commands/update.js";
+import { doctorCommand } from "./commands/doctor.js";
+import chalk from "chalk";
 
 const require = createRequire(import.meta.url);
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -36,7 +38,9 @@ program
 program
   .command("status")
   .description("Show macro view of the product state")
-  .action(statusCommand);
+  .option("--detail", "Show full feature list with progress bars")
+  .option("--all", "Alias for --detail")
+  .action((opts) => statusCommand({ detail: opts.detail, all: opts.all }));
 
 program
   .command("claim <feature>")
@@ -67,13 +71,14 @@ program
 
 program
   .command("add <type>")
-  .description("Add a feature or session (type: feature, session)")
+  .description("Add a feature, group, or session (type: feature, group, session)")
   .option("-n, --name <name>", "Name")
   .option("-p, --priority <priority>", "Priority (critical, high, medium, low)")
   .option("-d, --description <desc>", "Description")
   .option("--agent <agent>", "Agent type for sessions")
   .option("--items <items>", "Comma-separated list of sub-items (features only)")
   .option("--progress <N/N>", "Progress fraction e.g. 11/11 (features only)")
+  .option("--label <label>", "Display label for groups")
   .action(addCommand);
 
 program
@@ -126,12 +131,13 @@ program
 
 program
   .command("update <type> <name>")
-  .description("Update a feature's description, items, progress, or priority")
+  .description("Update a feature's fields (type: feature)")
   .option("-d, --description <desc>", "New description")
   .option("--items <items>", "Comma-separated sub-items")
   .option("--progress <N/N>", "Progress fraction e.g. 3/5")
   .option("-p, --priority <priority>", "New priority")
   .option("--status <status>", "New status (pending|in_progress|done|blocked)")
+  .option("--group <group>", "Assign to group by name or label (use \"none\" to ungroup)")
   .action((type, name, opts) =>
     updateCommand(type, name, {
       description: opts.description,
@@ -139,7 +145,21 @@ program
       progress: opts.progress,
       priority: opts.priority,
       status: opts.status,
+      group: opts.group,
     })
   );
+
+program
+  .command("doctor")
+  .description("Check groundctl health: version, daemon, proxy, groups")
+  .action(doctorCommand);
+
+// ── Unknown command handler ──────────────────────────────────────────────────
+program.on("command:*", (operands: string[]) => {
+  const unknown = operands[0];
+  console.error(chalk.red(`\n  Unknown command: ${unknown}\n`));
+  console.error(`  Run ${chalk.cyan("groundctl --help")} to see available commands.\n`);
+  process.exit(1);
+});
 
 program.parse();

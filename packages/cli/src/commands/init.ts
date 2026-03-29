@@ -1,5 +1,8 @@
 import { existsSync, mkdirSync, writeFileSync, chmodSync, readFileSync, appendFileSync } from "node:fs";
 import { join } from "node:path";
+import { homedir } from "node:os";
+import { spawn, execSync } from "node:child_process";
+import { createInterface } from "node:readline";
 import chalk from "chalk";
 import { openDb, closeDb } from "../storage/db.js";
 import { generateProjectState, generateAgentsMd } from "../generators/markdown.js";
@@ -40,6 +43,95 @@ groundctl ingest \\
 groundctl sync 2>/dev/null || true
 echo "--- groundctl: Product state updated ---"
 `;
+
+const LAUNCH_AGENT_ID = "org.groundctl.watch";
+const LAUNCH_AGENT_PLIST_PATH = join(homedir(), "Library", "LaunchAgents", `${LAUNCH_AGENT_ID}.plist`);
+
+function buildLaunchAgentPlist(projectPath: string): string {
+  // Resolve groundctl binary path
+  const binPath = process.argv[1]; // path to the built groundctl script
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>${LAUNCH_AGENT_ID}</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>${process.execPath}</string>
+    <string>${binPath}</string>
+    <string>watch</string>
+    <string>--project-path</string>
+    <string>${projectPath}</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <false/>
+  <key>StandardOutPath</key>
+  <string>${join(projectPath, ".groundctl", "watch.log")}</string>
+  <key>StandardErrorPath</key>
+  <string>${join(projectPath, ".groundctl", "watch.log")}</string>
+</dict>
+</plist>
+`;
+}
+
+function readLine(prompt: string): Promise<string> {
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  return new Promise((resolve) => {
+    rl.question(prompt, (a) => { rl.close(); resolve(a.trim().toLowerCase()); });
+  });
+}
+
+/** Start watch daemon and write PID to .groundctl/watch.pid */
+function startWatchDaemon(projectPath: string): number | null {
+  try {
+    const args = [process.argv[1], "watch", "--project-path", projectPath];
+    const child = spawn(process.execPath, args, {
+      detached: true,
+      stdio: "ignore",
+    });
+    child.unref();
+    const pid = child.pid ?? null;
+    if (pid) {
+      const groundctlDir = join(projectPath, ".groundctl");
+      mkdirSync(groundctlDir, { recursive: true });
+      writeFileSync(join(groundctlDir, "watch.pid"), String(pid), "utf8");
+    }
+    return pid;
+  } catch {
+    return null;
+  }
+}
+
+/** Check if the watch daemon is already running */
+function watchDaemonRunning(projectPath: string): boolean {
+  try {
+    const pidPath = join(projectPath, ".groundctl", "watch.pid");
+    if (!existsSync(pidPath)) return false;
+    const pid = parseInt(readFileSync(pidPath, "utf8").trim());
+    if (!pid) return false;
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Install LaunchAgent plist and load it */
+function installLaunchAgent(projectPath: string): boolean {
+  try {
+    const laDir = join(homedir(), "Library", "LaunchAgents");
+    mkdirSync(laDir, { recursive: true });
+    writeFileSync(LAUNCH_AGENT_PLIST_PATH, buildLaunchAgentPlist(projectPath), "utf8");
+    // Load it immediately (best-effort)
+    try { execSync(`launchctl load "${LAUNCH_AGENT_PLIST_PATH}"`, { stdio: "ignore" }); } catch { /* ignore */ }
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 export async function initCommand(options: { importFromGit?: boolean }): Promise<void> {
   const cwd = process.cwd();
@@ -112,6 +204,41 @@ export async function initCommand(options: { importFromGit?: boolean }): Promise
     const content = readFileSync(gitignorePath, "utf-8");
     if (!content.includes(".groundctl/")) {
       appendFileSync(gitignorePath, gitignoreEntry);
+    }
+  }
+
+  // 6. Start watch daemon
+  console.log("");
+  if (watchDaemonRunning(cwd)) {
+    console.log(chalk.green("  ✓ Watch daemon already running"));
+  } else {
+    const pid = startWatchDaemon(cwd);
+    if (pid) {
+      console.log(chalk.green(`  ✓ Watch daemon started`) + chalk.gray(` (PID ${pid})`));
+    } else {
+      console.log(chalk.yellow("  ⚠  Could not start watch daemon — run: groundctl watch --daemon"));
+    }
+  }
+
+  // 7. Prompt for LaunchAgent (macOS only)
+  if (process.platform === "darwin") {
+    const laInstalled = existsSync(LAUNCH_AGENT_PLIST_PATH);
+    if (!laInstalled) {
+      const answer = await readLine(
+        chalk.bold("  Start groundctl watch on login? (recommended) ") + chalk.gray("[y/n] ")
+      );
+      if (answer === "y" || answer === "yes") {
+        const ok = installLaunchAgent(cwd);
+        if (ok) {
+          console.log(chalk.green("  ✓ LaunchAgent installed") + chalk.gray(` (${LAUNCH_AGENT_PLIST_PATH.replace(homedir(), "~")})`));
+        } else {
+          console.log(chalk.yellow("  ⚠  LaunchAgent install failed — run: groundctl doctor"));
+        }
+      } else {
+        console.log(chalk.gray("  Skipped. You can install later: groundctl doctor"));
+      }
+    } else {
+      console.log(chalk.green("  ✓ LaunchAgent already installed"));
     }
   }
 

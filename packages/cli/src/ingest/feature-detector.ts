@@ -1,8 +1,12 @@
 /**
  * feature-detector.ts
  *
- * Uses Claude API (haiku) to analyse a project's git history + file tree
- * and propose meaningful product features, then prompts the user to confirm.
+ * Detects product features from project context using:
+ *   1. detect.groundctl.org proxy (zero config, default)
+ *   2. Direct ANTHROPIC_API_KEY (fallback if proxy fails)
+ *   3. Basic git-log heuristic (offline fallback)
+ *
+ * Then prompts for confirmation before importing to SQLite.
  */
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
@@ -25,6 +29,21 @@ export interface DetectedFeature {
   description: string;
 }
 
+interface ContextParts {
+  gitLog?:       string;
+  fileTree?:     string;
+  readme?:       string;
+  projectState?: string;
+}
+
+// ── Constants ────────────────────────────────────────────────────────────────
+
+const PROXY_URL    = "https://detect.groundctl.org/detect";
+const USER_AGENT   = "groundctl-cli/0.5.0 Node.js"; // updated with package version
+const MODEL        = "claude-haiku-4-5-20251001";
+const SYSTEM_PROMPT =
+  "You are a product analyst. Analyze this project and identify the main product features.";
+
 // ── Context collection ───────────────────────────────────────────────────────
 
 function run(cmd: string, cwd: string): string {
@@ -35,24 +54,9 @@ function run(cmd: string, cwd: string): string {
   }
 }
 
-function collectContext(projectPath: string): string {
-  const parts: string[] = [];
-
-  // 1. Git log (commit messages, up to 150 lines)
+function collectContextParts(projectPath: string): ContextParts {
   const gitLog = run("git log --oneline --no-merges", projectPath);
-  if (gitLog.trim()) {
-    const lines = gitLog.trim().split("\n").slice(0, 150).join("\n");
-    parts.push(`## Git history (${lines.split("\n").length} commits)\n${lines}`);
-  }
-
-  // 2. Files modified per session (git diff --stat recent commits)
-  const diffStat = run("git log --stat --no-merges --oneline -30", projectPath);
-  if (diffStat.trim()) {
-    parts.push(`## Recent commit file changes\n${diffStat.trim().slice(0, 3000)}`);
-  }
-
-  // 3. File tree — source files only, skip noise
-  const find = run(
+  const fileTree = run(
     [
       "find . -type f",
       "-not -path '*/node_modules/*'",
@@ -73,135 +77,158 @@ function collectContext(projectPath: string): string {
     ].join(" "),
     projectPath
   );
-  if (find.trim()) {
-    parts.push(`## Project file structure\n${find.trim()}`);
-  }
 
-  // 4. README.md (first 3 000 chars)
   const readmePath = join(projectPath, "README.md");
-  if (existsSync(readmePath)) {
-    const readme = readFileSync(readmePath, "utf-8").slice(0, 3_000);
-    parts.push(`## README.md\n${readme}`);
-  }
+  const readme = existsSync(readmePath)
+    ? readFileSync(readmePath, "utf-8").slice(0, 3_000)
+    : undefined;
 
-  // 5. Existing PROJECT_STATE.md context (if any)
   const psPath = join(projectPath, "PROJECT_STATE.md");
-  if (existsSync(psPath)) {
-    const ps = readFileSync(psPath, "utf-8").slice(0, 2_000);
-    parts.push(`## Existing PROJECT_STATE.md\n${ps}`);
-  }
+  const projectState = existsSync(psPath)
+    ? readFileSync(psPath, "utf-8").slice(0, 2_000)
+    : undefined;
 
-  return parts.join("\n\n");
-}
-
-// ── Claude API call ──────────────────────────────────────────────────────────
-
-const SYSTEM_PROMPT =
-  "You are a product analyst. Analyze this project and identify the main product features.";
-
-const USER_TEMPLATE = (context: string) => `Based on this git history and project structure, identify the product features with their status and priority.
-
-Rules:
-- Features are functional capabilities, not technical tasks
-- Maximum 12 features
-- status: "done" if all related commits are old and nothing is open, otherwise "open"
-- priority: critical/high/medium/low
-- name: short, kebab-case, human-readable (e.g. "user-auth", "data-pipeline")
-- description: one sentence, what the feature does for the user
-
-Respond ONLY with valid JSON, no markdown, no explanation:
-{"features":[{"name":"...","status":"done","priority":"high","description":"..."}]}
-
-Project context:
-${context}`;
-
-function httpsPost(opts: {
-  apiKey: string;
-  model: string;
-  system: string;
-  userMessage: string;
-  maxTokens?: number;
-}): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const body = JSON.stringify({
-      model: opts.model,
-      max_tokens: opts.maxTokens ?? 1024,
-      system: opts.system,
-      messages: [{ role: "user", content: opts.userMessage }],
-    });
-
-    const req = httpsRequest(
-      {
-        hostname: "api.anthropic.com",
-        path: "/v1/messages",
-        method: "POST",
-        headers: {
-          "x-api-key": opts.apiKey,
-          "anthropic-version": "2023-06-01",
-          "content-type": "application/json",
-          "content-length": Buffer.byteLength(body),
-        },
-      },
-      (res) => {
-        let data = "";
-        res.on("data", (chunk: Buffer) => { data += chunk.toString(); });
-        res.on("end", () => { resolve(data); });
-      }
-    );
-    req.on("error", reject);
-    req.write(body);
-    req.end();
-  });
-}
-
-/** Extract the text of the first content block from a Messages API response. */
-function extractText(raw: string): string {
-  const json = JSON.parse(raw) as {
-    content?: Array<{ type: string; text: string }>;
-    error?:   { type: string; message: string };
+  return {
+    gitLog:       gitLog.trim().split("\n").slice(0, 150).join("\n") || undefined,
+    fileTree:     fileTree.trim() || undefined,
+    readme,
+    projectState,
   };
-  if (json.error) throw new Error(`API error: ${json.error.message}`);
-  const block = (json.content ?? []).find((b) => b.type === "text");
-  if (!block) throw new Error("No text block in API response");
-  return block.text;
 }
 
-/** Pull valid JSON out of the model reply, tolerating stray markdown fences. */
-function parseFeatureJson(text: string): DetectedFeature[] {
-  // Strip markdown code fences if present
-  const stripped = text.replace(/^```[^\n]*\n?/, "").replace(/\n?```$/, "").trim();
+function buildContextString(parts: ContextParts): string {
+  const sections: string[] = [];
+  if (parts.gitLog)       sections.push(`## Git history\n${parts.gitLog}`);
+  if (parts.fileTree)     sections.push(`## File structure\n${parts.fileTree}`);
+  if (parts.readme)       sections.push(`## README\n${parts.readme}`);
+  if (parts.projectState) sections.push(`## Existing PROJECT_STATE.md\n${parts.projectState}`);
+  return sections.join("\n\n");
+}
 
-  let obj: { features?: unknown };
-  try {
-    obj = JSON.parse(stripped) as { features?: unknown };
-  } catch {
-    // Try to extract the first {...} block
-    const match = stripped.match(/\{[\s\S]*\}/);
-    if (!match) throw new Error("Could not parse JSON from model response");
-    obj = JSON.parse(match[0]) as { features?: unknown };
-  }
+// ── JSON parsing ──────────────────────────────────────────────────────────────
 
-  if (!Array.isArray(obj.features)) throw new Error("Response missing 'features' array");
-
-  return (obj.features as Array<Record<string, string>>).map((f) => ({
-    name:        String(f.name        ?? "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""),
+function normaliseFeatures(raw: Array<Record<string, string>>): DetectedFeature[] {
+  return raw.map((f) => ({
+    name:        String(f.name ?? "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""),
     status:      (f.status === "done" ? "done" : "open") as DetectedFeature["status"],
-    priority:    (["critical","high","medium","low"].includes(f.priority)
-                    ? f.priority : "medium") as DetectedFeature["priority"],
+    priority:    (["critical","high","medium","low"].includes(f.priority) ? f.priority : "medium") as DetectedFeature["priority"],
     description: String(f.description ?? "").slice(0, 120),
   })).filter((f) => f.name.length >= 2);
 }
 
-async function callClaude(apiKey: string, context: string): Promise<DetectedFeature[]> {
-  const raw = await httpsPost({
-    apiKey,
-    model: "claude-haiku-4-5-20251001",
-    system: SYSTEM_PROMPT,
-    userMessage: USER_TEMPLATE(context),
-    maxTokens: 1024,
+function parseFeatureJson(text: string): DetectedFeature[] {
+  const stripped = text.replace(/^```[^\n]*\n?/, "").replace(/\n?```$/, "").trim();
+  let obj: { features?: unknown };
+  try { obj = JSON.parse(stripped) as { features?: unknown }; }
+  catch {
+    const m = stripped.match(/\{[\s\S]*\}/);
+    if (!m) throw new Error("No JSON found in response");
+    obj = JSON.parse(m[0]) as { features?: unknown };
+  }
+  if (!Array.isArray(obj.features)) throw new Error("Response missing 'features' array");
+  return normaliseFeatures(obj.features as Array<Record<string, string>>);
+}
+
+// ── HTTP helpers ──────────────────────────────────────────────────────────────
+
+function httpsPost(url: string, body: object, extraHeaders?: Record<string, string>): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const bodyStr = JSON.stringify(body);
+    const parsed  = new URL(url);
+    const req = httpsRequest(
+      {
+        hostname: parsed.hostname,
+        path:     parsed.pathname + parsed.search,
+        method:   "POST",
+        headers: {
+          "content-type":   "application/json",
+          "content-length": Buffer.byteLength(bodyStr),
+          "user-agent":     USER_AGENT,
+          ...extraHeaders,
+        },
+      },
+      (res) => {
+        let data = "";
+        res.on("data", (c: Buffer) => { data += c.toString(); });
+        res.on("end", () => {
+          if ((res.statusCode ?? 200) >= 400) {
+            reject(new Error(`HTTP ${res.statusCode}: ${data.slice(0, 200)}`));
+          } else {
+            resolve(data);
+          }
+        });
+      }
+    );
+    req.setTimeout(15_000, () => { req.destroy(new Error("Request timeout")); });
+    req.on("error", reject);
+    req.write(bodyStr);
+    req.end();
   });
-  const text = extractText(raw);
-  return parseFeatureJson(text);
+}
+
+// ── Detection strategies ──────────────────────────────────────────────────────
+
+/** Strategy 1: call detect.groundctl.org proxy (zero config). */
+async function callProxy(parts: ContextParts): Promise<DetectedFeature[]> {
+  const raw = await httpsPost(PROXY_URL, parts);
+  const resp = JSON.parse(raw) as { features?: Array<Record<string, string>>; error?: string };
+  if (resp.error) throw new Error(resp.error);
+  if (!Array.isArray(resp.features)) throw new Error("No features in proxy response");
+  return normaliseFeatures(resp.features);
+}
+
+/** Strategy 2: call Anthropic API directly with ANTHROPIC_API_KEY. */
+async function callDirectApi(apiKey: string, parts: ContextParts): Promise<DetectedFeature[]> {
+  const userMsg = `Based on this project context, identify the product features.
+
+Rules:
+- Features are functional capabilities, not technical tasks
+- Maximum 12 features
+- status: "done" if clearly shipped, otherwise "open"
+- priority: critical/high/medium/low
+- name: short, kebab-case
+
+Respond ONLY with valid JSON, no markdown:
+{"features":[{"name":"...","status":"done","priority":"high","description":"..."}]}
+
+${buildContextString(parts)}`;
+
+  const raw = await httpsPost(
+    "https://api.anthropic.com/v1/messages",
+    { model: MODEL, max_tokens: 1024, system: SYSTEM_PROMPT, messages: [{ role: "user", content: userMsg }] },
+    { "x-api-key": apiKey, "anthropic-version": "2023-06-01" }
+  );
+  const resp = JSON.parse(raw) as {
+    content?: Array<{ type: string; text: string }>;
+    error?: { message: string };
+  };
+  if (resp.error) throw new Error(resp.error.message);
+  const block = (resp.content ?? []).find((b) => b.type === "text");
+  if (!block) throw new Error("Empty response from API");
+  return parseFeatureJson(block.text);
+}
+
+/** Strategy 3: basic heuristic from git commit messages (offline fallback). */
+function basicHeuristic(projectPath: string): DetectedFeature[] {
+  const log = run("git log --oneline --no-merges", projectPath);
+  if (!log.trim()) return [];
+
+  const seen = new Set<string>();
+  const features: DetectedFeature[] = [];
+
+  for (const line of log.trim().split("\n").slice(0, 60)) {
+    const msg = line.replace(/^[a-f0-9]+ /, "").toLowerCase();
+    // Match patterns like "feat: user-auth", "add user auth", "implement data pipeline"
+    const m = msg.match(/(?:feat(?:ure)?[:,\s]+|add\s+|implement\s+|build\s+|create\s+|setup\s+)([a-z][\w\s-]{2,40})/);
+    if (!m) continue;
+    const raw  = m[1].trim().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "").replace(/-+/g, "-").replace(/^-|-$/g, "");
+    const name = raw.slice(0, 30);
+    if (!name || seen.has(name)) continue;
+    seen.add(name);
+    features.push({ name, status: "done", priority: "medium", description: `Detected from: ${line.slice(8, 80)}` });
+    if (features.length >= 10) break;
+  }
+  return features;
 }
 
 // ── Interactive confirmation ──────────────────────────────────────────────────
@@ -209,14 +236,10 @@ async function callClaude(apiKey: string, context: string): Promise<DetectedFeat
 function renderFeatureList(features: DetectedFeature[]): void {
   console.log(chalk.bold(`\n  Detected ${features.length} features:\n`));
   for (const f of features) {
-    const statusIcon = f.status === "done" ? chalk.green("✓") : chalk.gray("○");
-    const prioColor  = f.priority === "critical" || f.priority === "high"
-      ? chalk.red : chalk.gray;
-    console.log(
-      `  ${statusIcon} ${chalk.white(f.name.padEnd(28))}` +
-      prioColor(`(${f.priority}, ${f.status})`.padEnd(18)) +
-      chalk.gray(f.description)
-    );
+    const icon    = f.status === "done" ? chalk.green("✓") : chalk.gray("○");
+    const prioCh  = f.priority === "critical" || f.priority === "high" ? chalk.red : chalk.gray;
+    const meta    = prioCh(`(${f.priority}, ${f.status})`.padEnd(16));
+    console.log(`  ${icon} ${chalk.white(f.name.padEnd(28))}${meta}  ${chalk.gray(f.description)}`);
   }
   console.log("");
 }
@@ -224,140 +247,113 @@ function renderFeatureList(features: DetectedFeature[]): void {
 function readLine(prompt: string): Promise<string> {
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   return new Promise((resolve) => {
-    rl.question(prompt, (answer) => { rl.close(); resolve(answer.trim().toLowerCase()); });
+    rl.question(prompt, (a) => { rl.close(); resolve(a.trim().toLowerCase()); });
   });
 }
 
 async function editInEditor(features: DetectedFeature[]): Promise<DetectedFeature[] | null> {
-  const tmpPath = join(tmpdir(), `groundctl-features-${Date.now()}.json`);
-  writeFileSync(tmpPath, JSON.stringify({ features }, null, 2), "utf-8");
-
+  const tmp = join(tmpdir(), `groundctl-features-${Date.now()}.json`);
+  writeFileSync(tmp, JSON.stringify({ features }, null, 2), "utf-8");
   const editor = process.env.EDITOR ?? process.env.VISUAL ?? "vi";
-  try {
-    execSync(`${editor} "${tmpPath}"`, { stdio: "inherit" });
-  } catch {
-    console.log(chalk.red("  Editor exited with error — using original features."));
-    return features;
-  }
-
-  try {
-    const edited = readFileSync(tmpPath, "utf-8");
-    return parseFeatureJson(edited);
-  } catch (err) {
-    console.log(chalk.red(`  Could not parse edited JSON: ${(err as Error).message}`));
-    return null;
-  }
+  try { execSync(`${editor} "${tmp}"`, { stdio: "inherit" }); }
+  catch { return features; }
+  try { return parseFeatureJson(readFileSync(tmp, "utf-8")); }
+  catch (e) { console.log(chalk.red(`  Parse error: ${(e as Error).message}`)); return null; }
 }
 
-// ── DB import ────────────────────────────────────────────────────────────────
+// ── DB import ─────────────────────────────────────────────────────────────────
 
 function importFeatures(db: Database, features: DetectedFeature[]): void {
-  // Remove features that have no active claims and are still pending
-  // (i.e., auto-detected junk from previous PROJECT_STATE.md parsing)
-  db.run(
-    `DELETE FROM features
-     WHERE id NOT IN (SELECT DISTINCT feature_id FROM claims)
-       AND status = 'pending'`
-  );
+  // Remove unclaimed pending features (cleanup from old heuristic imports)
+  db.run(`DELETE FROM features WHERE id NOT IN (SELECT DISTINCT feature_id FROM claims) AND status = 'pending'`);
 
   for (const f of features) {
-    const id = f.name;
     const status = f.status === "done" ? "done" : "pending";
-    const exists = queryOne(db, "SELECT id FROM features WHERE id = ?", [id]);
-    if (!exists) {
+    if (!queryOne(db, "SELECT id FROM features WHERE id = ?", [f.name])) {
       db.run(
         "INSERT INTO features (id, name, status, priority, description) VALUES (?, ?, ?, ?, ?)",
-        [id, f.name, status, f.priority, f.description]
+        [f.name, f.name, status, f.priority, f.description]
       );
     } else {
-      // Update description/priority but don't downgrade status if already done
       db.run(
-        `UPDATE features
-         SET description = ?, priority = ?, updated_at = datetime('now')
-         WHERE id = ?`,
-        [f.description, f.priority, id]
+        "UPDATE features SET description = ?, priority = ?, updated_at = datetime('now') WHERE id = ?",
+        [f.description, f.priority, f.name]
       );
     }
   }
   saveDb();
 }
 
-// ── Main entry point ─────────────────────────────────────────────────────────
+// ── Main entry point ──────────────────────────────────────────────────────────
 
-/**
- * Detect features using Claude API, prompt for confirmation, import to DB.
- * Returns true when features were imported.
- */
 export async function detectAndImportFeatures(
   db: Database,
   projectPath: string
 ): Promise<boolean> {
+  process.stdout.write(chalk.gray("  Detecting features..."));
+
+  const parts  = collectContextParts(projectPath);
   const apiKey = process.env.ANTHROPIC_API_KEY;
+  let features: DetectedFeature[] = [];
+  let source   = "";
 
-  if (!apiKey) {
-    console.log(chalk.yellow(
-      "\n  Smart feature detection disabled — ANTHROPIC_API_KEY not set."
-    ));
-    console.log(chalk.gray("  To enable:"));
-    console.log(chalk.gray("    export ANTHROPIC_API_KEY=sk-ant-..."));
-    console.log(chalk.gray(
-      "\n  Or add features manually:\n" +
-      "    groundctl add feature -n 'my-feature'\n"
-    ));
-    return false;
-  }
-
-  console.log(chalk.gray("  Collecting project context..."));
-  const context = collectContext(projectPath);
-
-  console.log(chalk.gray("  Asking Claude to detect features..."));
-
-  let features: DetectedFeature[];
+  // ── Try proxy first ───────────────────────────────────────────────────────
   try {
-    features = await callClaude(apiKey, context);
-  } catch (err) {
-    console.log(chalk.red(`  ✗ Feature detection failed: ${(err as Error).message}`));
-    console.log(chalk.gray("  Add features manually with: groundctl add feature -n 'my-feature'\n"));
-    return false;
+    features = await callProxy(parts);
+    source   = "proxy";
+  } catch {
+    // ── Fallback: direct API key ────────────────────────────────────────────
+    if (apiKey) {
+      try {
+        features = await callDirectApi(apiKey, parts);
+        source   = "api";
+      } catch {
+        // ── Fallback: basic heuristic ─────────────────────────────────────
+        features = basicHeuristic(projectPath);
+        source   = "heuristic";
+      }
+    } else {
+      features = basicHeuristic(projectPath);
+      source   = "heuristic";
+    }
   }
+
+  // Clear the "Detecting features..." line
+  process.stdout.write("\r" + " ".repeat(30) + "\r");
 
   if (features.length === 0) {
-    console.log(chalk.yellow("  No features detected — add them manually.\n"));
+    console.log(chalk.yellow("  No features detected — add them manually with groundctl add feature.\n"));
     return false;
   }
 
-  renderFeatureList(features);
+  const sourceLabel =
+    source === "proxy"     ? chalk.green("(via detect.groundctl.org)") :
+    source === "api"       ? chalk.green("(via ANTHROPIC_API_KEY)") :
+    chalk.yellow("(basic heuristic — set ANTHROPIC_API_KEY for better results)");
 
-  // Interactive loop — retry on "edit" until user confirms or cancels
+  renderFeatureList(features);
+  console.log(chalk.gray(`  Source: ${sourceLabel}\n`));
+
+  // Interactive loop
   let pending = features;
   while (true) {
-    const answer = await readLine(
-      chalk.bold("  Import these features? ") + chalk.gray("[y/n/edit] ") + ""
-    );
+    const answer = await readLine(chalk.bold("  Import these features? ") + chalk.gray("[y/n/edit] "));
 
     if (answer === "y" || answer === "yes") {
       importFeatures(db, pending);
       console.log(chalk.green(`\n  ✓ ${pending.length} features imported\n`));
       return true;
     }
-
     if (answer === "n" || answer === "no") {
-      console.log(chalk.gray("  Skipped — no features imported.\n"));
+      console.log(chalk.gray("  Skipped.\n"));
       return false;
     }
-
     if (answer === "e" || answer === "edit") {
       const edited = await editInEditor(pending);
-      if (edited && edited.length > 0) {
-        pending = edited;
-        renderFeatureList(pending);
-      } else {
-        console.log(chalk.yellow("  No valid features after edit — try again.\n"));
-      }
+      if (edited && edited.length > 0) { pending = edited; renderFeatureList(pending); }
+      else console.log(chalk.yellow("  No valid features after edit.\n"));
       continue;
     }
-
-    // Unknown answer — re-prompt
     console.log(chalk.gray("  Please answer y, n, or edit."));
   }
 }

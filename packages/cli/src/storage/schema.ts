@@ -91,11 +91,22 @@ export function applySchema(db: Database): void {
   db.run("CREATE INDEX IF NOT EXISTS idx_files_session ON files_modified(session_id)");
   db.run("CREATE INDEX IF NOT EXISTS idx_decisions_session ON decisions(session_id)");
 
-  // Migration: add progress and items columns (no-op if already present)
+  // ── feature_groups table ────────────────────────────────────────────────
+  db.run(`
+    CREATE TABLE IF NOT EXISTS feature_groups (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      name        TEXT NOT NULL UNIQUE,
+      label       TEXT NOT NULL,
+      order_index INTEGER NOT NULL DEFAULT 0
+    )
+  `);
+
+  // Migrations: add columns (no-op if already present)
   const tryAlter = (sql: string) => { try { db.run(sql); } catch { /* already exists */ } };
   tryAlter("ALTER TABLE features ADD COLUMN progress_done  INTEGER");
   tryAlter("ALTER TABLE features ADD COLUMN progress_total INTEGER");
   tryAlter("ALTER TABLE features ADD COLUMN items          TEXT");
+  tryAlter("ALTER TABLE features ADD COLUMN group_id       INTEGER REFERENCES feature_groups(id)");
 
   db.run(
     "INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', ?)",

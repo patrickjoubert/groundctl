@@ -1,0 +1,23 @@
+name            = "groundctl-detect"
+main            = "src/index.ts"
+compatibility_date = "2024-11-01"
+compatibility_flags = ["nodejs_compat"]
+
+[observability]
+enabled = true
+
+# KV namespace for rate limiting
+# Create with: wrangler kv namespace create RATE_LIMIT
+# Then replace the id below with the output id
+[[kv_namespaces]]
+binding = "RATE_LIMIT"
+id      = "REPLACE_WITH_KV_NAMESPACE_ID"
+
+# Custom domain: detect.groundctl.org
+# Add CNAME in Cloudflare DNS → <name>.workers.dev
+[[routes]]
+pattern = "detect.groundctl.org/*"
+zone_name = "groundctl.org"
+
+# Secrets (set via CLI):
+#   wrangler secret put ANTHROPIC_API_KEY
