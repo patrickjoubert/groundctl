@@ -2,11 +2,12 @@ import chalk from "../colors.js";
 import { createInterface } from "node:readline";
 import { randomUUID } from "node:crypto";
 import { execSync } from "node:child_process";
-import { openDb, closeDb, saveDb, getDbPath } from "../storage/db.js";
+import { openDb, closeDb, saveDb } from "../storage/db.js";
 import { query, queryOne } from "../storage/query.js";
 import type { Database } from "sql.js";
 
 const SUGGEST_URL = "https://detect.groundctl.org/suggest";
+const LOW_BACKLOG_THRESHOLD = 3;
 
 interface SuggestedFeature {
   name: string;
@@ -37,7 +38,6 @@ function printGroup(label: string, features: SuggestedFeature[]): void {
   const sequential = features.filter(f => !f.parallel_safe);
 
   if (parallel.length > 0) {
-    console.log(chalk.gray("  Ready in parallel:"));
     for (const f of parallel) {
       const pColor = f.priority === "critical" || f.priority === "high" ? chalk.red : chalk.gray;
       console.log(`  ${chalk.green("○")} ${chalk.white(f.name)} ${pColor(`(${f.priority})`)} — ${f.description}`);
@@ -46,7 +46,6 @@ function printGroup(label: string, features: SuggestedFeature[]): void {
   }
 
   if (sequential.length > 0) {
-    console.log(chalk.gray("  After those:"));
     for (const f of sequential) {
       const pColor = f.priority === "critical" || f.priority === "high" ? chalk.red : chalk.gray;
       console.log(`  ${chalk.yellow("○")} ${chalk.white(f.name)} ${pColor(`(${f.priority})`)} — ${f.description}`);
@@ -60,11 +59,10 @@ function printGroup(label: string, features: SuggestedFeature[]): void {
 
 function printHint(): void {
   console.log(chalk.gray("  Or add your own:"));
-  console.log(chalk.gray("  groundctl add feature -n 'my-feature' -p high"));
-  console.log(chalk.gray("  groundctl plan 'describe what you want to build'\n"));
+  console.log(chalk.gray(`  groundctl add feature -n "my-feature" -p high`));
+  console.log(chalk.gray(`  groundctl plan "describe what you want to build"\n`));
 }
 
-/** Claim a feature by name using an already-open db. Returns true if claimed. */
 function claimInDb(db: Database, name: string): boolean {
   const feat = queryOne<{ id: string; status: string }>(
     db, "SELECT id, status FROM features WHERE name = ?", [name]
@@ -74,7 +72,7 @@ function claimInDb(db: Database, name: string): boolean {
   const already = queryOne<{ c: number }>(
     db, "SELECT COUNT(*) as c FROM claims WHERE feature_id = ? AND released_at IS NULL", [feat.id]
   );
-  if ((already?.c ?? 0) > 0) return true; // already claimed — count as ok
+  if ((already?.c ?? 0) > 0) return true;
 
   const sess = queryOne<{ id: string }>(db, "SELECT id FROM sessions ORDER BY started_at DESC LIMIT 1");
   const sessionId = sess?.id ?? "cli";
@@ -113,7 +111,7 @@ function printLaunchInstructions(claimedNames: string[], projectDir: string): vo
 
 async function importAndClaim(features: SuggestedFeature[], projectDir: string): Promise<void> {
   const db = await openDb();
-  const imported: string[] = [];
+  const names: string[] = [];
 
   for (const f of features) {
     const name = f.name.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-|-$/g, "");
@@ -125,13 +123,10 @@ async function importAndClaim(features: SuggestedFeature[], projectDir: string):
         `INSERT INTO features (id, name, priority, description) VALUES (?, ?, ?, ?)`,
         [id, name, priority, f.description ?? null]
       );
-      imported.push(name);
-    } else {
-      imported.push(name);
     }
+    names.push(name);
   }
 
-  // Auto-claim the parallel_safe features
   const parallelNames = features
     .filter(f => f.parallel_safe)
     .map(f => f.name.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-|-$/g, ""));
@@ -144,37 +139,31 @@ async function importAndClaim(features: SuggestedFeature[], projectDir: string):
   saveDb();
   closeDb();
 
-  const total = new Set(imported).size;
+  const total = new Set(names).size;
   console.log(chalk.green(`\n  ✓ ${total} feature${total !== 1 ? "s" : ""} imported\n`));
 
   printLaunchInstructions(claimed, projectDir);
   printHint();
 }
 
-async function runSuggest(cwd: string): Promise<void> {
+// mode: "empty" = no open features at all; "low" = low backlog, already printed available
+async function runSuggest(cwd: string, mode: "empty" | "low" = "empty"): Promise<void> {
   const db = await openDb();
-
   const completed = query<{ name: string; description: string | null }>(
-    db,
-    `SELECT name, description FROM features WHERE status = 'done' ORDER BY name`
+    db, `SELECT name, description FROM features WHERE status = 'done' ORDER BY name`
   );
-
   closeDb();
 
-  process.stdout.write(chalk.gray("\n  Asking Claude for suggestions..."));
+  process.stdout.write(chalk.gray("  Fetching suggestions..."));
 
   const gitLog = tryGitLog(cwd);
-
   let incremental: SuggestedFeature[] = [];
   let expand: SuggestedFeature[] = [];
 
   try {
     const res = await fetch(SUGGEST_URL, {
       method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "user-agent": "groundctl-cli",
-      },
+      headers: { "content-type": "application/json", "user-agent": "groundctl-cli" },
       body: JSON.stringify({
         completedFeatures: completed.map(f => ({ name: f.name, description: f.description ?? undefined })),
         gitLog,
@@ -200,12 +189,16 @@ async function runSuggest(cwd: string): Promise<void> {
   process.stdout.write("\r" + " ".repeat(42) + "\r");
 
   if (incremental.length === 0 && expand.length === 0) {
-    console.log(chalk.yellow("\n  No suggestions returned.\n"));
+    console.log(chalk.yellow("  No suggestions returned.\n"));
     printHint();
     return;
   }
 
-  console.log(chalk.bold("\n  No open features — here are suggestions:\n"));
+  if (mode === "empty") {
+    console.log(chalk.bold("\n  No open features — here are suggestions:\n"));
+  } else {
+    console.log();
+  }
 
   if (incremental.length > 0) printGroup("INCREMENTAL — build on what exists", incremental);
   if (expand.length > 0)      printGroup("EXPAND — new capabilities", expand);
@@ -262,28 +255,29 @@ export async function nextCommand(options: { suggest?: boolean }): Promise<void>
 
   closeDb();
 
+  // ── No features at all ───────────────────────────────────────────────────────
   if (available.length === 0) {
-    if (options.suggest) {
-      await runSuggest(process.cwd());
-      return;
-    }
-    console.log(chalk.yellow("\n  No available features to claim."));
-    console.log(chalk.gray("  Tip: groundctl next --suggest to get AI-powered suggestions\n"));
+    await runSuggest(process.cwd(), "empty");
     return;
   }
 
-  console.log(chalk.bold("\n  Next available features:\n"));
+  // ── Show available features ──────────────────────────────────────────────────
+  console.log(chalk.bold("\n  Next available:\n"));
   for (let i = 0; i < available.length; i++) {
     const feat = available[i];
-    const pColor =
-      feat.priority === "critical" || feat.priority === "high"
-        ? chalk.red
-        : chalk.gray;
+    const pColor = feat.priority === "critical" || feat.priority === "high" ? chalk.red : chalk.gray;
     const marker = i === 0 ? chalk.green("→") : " ";
     console.log(`  ${marker} ${feat.name} ${pColor(`(${feat.priority})`)}`);
-    if (feat.description) {
-      console.log(chalk.gray(`      ${feat.description}`));
+    if (feat.description) console.log(chalk.gray(`      ${feat.description}`));
+  }
+
+  // ── Low backlog: auto-suggest ────────────────────────────────────────────────
+  if (available.length < LOW_BACKLOG_THRESHOLD || options.suggest) {
+    if (available.length < LOW_BACKLOG_THRESHOLD) {
+      console.log(chalk.yellow(`\n  ⚠ Low backlog (${available.length} feature${available.length > 1 ? "s" : ""} open)`));
     }
+    await runSuggest(process.cwd(), "low");
+    return;
   }
 
   console.log(chalk.gray(`\n  Claim with: groundctl claim "${available[0].name}"\n`));

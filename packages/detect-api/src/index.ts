@@ -33,7 +33,9 @@ const CORS_HEADERS: HeadersInit = {
 
 const MAX_BODY_BYTES = 50_000;
 const RATE_LIMIT_PER_DAY = 10;
-const MODEL = "claude-haiku-4-5-20251001";
+const MODEL_HAIKU  = "claude-haiku-4-5-20251001";  // /detect — simple extraction
+const MODEL_SONNET = "claude-sonnet-4-6";           // /suggest, /plan — deep reasoning
+const MODEL = MODEL_HAIKU; // default for /detect
 
 const SYSTEM_PROMPT =
   "You are a product analyst. Analyze this project and identify the main product features.";
@@ -170,7 +172,7 @@ export default {
             "content-type": "application/json",
           },
           body: JSON.stringify({
-            model: MODEL,
+            model: MODEL_SONNET,
             max_tokens: 1500,
             system: systemPrompt,
             messages: [{ role: "user", content: userPrompt }],
@@ -230,8 +232,8 @@ export default {
             "content-type": "application/json",
           },
           body: JSON.stringify({
-            model: MODEL,
-            max_tokens: 800,
+            model: MODEL_SONNET,
+            max_tokens: 1200,
             system: "You are a product strategist. Suggest the next most valuable features to build for a software project.",
             messages: [{ role: "user", content: userPrompt }],
           }),
