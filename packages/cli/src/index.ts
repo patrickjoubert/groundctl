@@ -37,7 +37,8 @@ program
   .command("init")
   .description("Setup hooks + initial state for the current project")
   .option("--import-from-git", "Bootstrap sessions and features from git history")
-  .action((opts) => initCommand({ importFromGit: opts.importFromGit }));
+  .option("--skip-vision", "Skip VISION.md creation questions")
+  .action((opts) => initCommand({ importFromGit: opts.importFromGit, skipVision: opts.skipVision }));
 
 program
   .command("status")

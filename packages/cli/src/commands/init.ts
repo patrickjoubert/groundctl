@@ -84,6 +84,67 @@ function readLine(prompt: string): Promise<string> {
   });
 }
 
+function readLineRaw(prompt: string): Promise<string> {
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  return new Promise((resolve) => {
+    rl.question(prompt, (a) => { rl.close(); resolve(a.trim()); });
+  });
+}
+
+async function createVisionMd(cwd: string, projectName: string): Promise<void> {
+  const visionPath = join(cwd, "VISION.md");
+  if (existsSync(visionPath)) return;
+
+  console.log(chalk.bold("\n  No VISION.md found — answer 4 quick questions"));
+  console.log(chalk.gray("  to improve feature suggestions (30 seconds):\n"));
+
+  const q1 = await readLineRaw(
+    chalk.gray("  1. Who uses this product?\n") +
+    chalk.gray("     e.g. 'AI agents, developers building EV apps'\n") +
+    "  → "
+  );
+  const q2 = await readLineRaw(
+    chalk.gray("\n  2. What market or geography?\n") +
+    chalk.gray("     e.g. 'Europe only — UK done, DE/FR/NL next'\n") +
+    "  → "
+  );
+  const q3 = await readLineRaw(
+    chalk.gray("\n  3. What is this product NOT?\n") +
+    chalk.gray("     e.g. 'Not a human-facing widget, not US market'\n") +
+    "  → "
+  );
+  const q4 = await readLineRaw(
+    chalk.gray("\n  4. What's the core value in one sentence?\n") +
+    chalk.gray("     e.g. 'MCP-native EV specs API for AI agents'\n") +
+    "  → "
+  );
+
+  if (!q1 && !q2 && !q3 && !q4) return;
+
+  const date = new Date().toISOString().slice(0, 10);
+  const lines = [
+    `# ${projectName} — Vision`,
+    "",
+    "## Users",
+    q1 || "(not specified)",
+    "",
+    "## Market",
+    q2 || "(not specified)",
+    "",
+    "## What this is NOT",
+    q3 || "(not specified)",
+    "",
+    "## Core value",
+    q4 || "(not specified)",
+    "",
+    "## Generated",
+    `${date} by groundctl init`,
+  ];
+  writeFileSync(visionPath, lines.join("\n"), "utf-8");
+  console.log(chalk.green("\n  ✓ VISION.md created"));
+  console.log(chalk.gray("  groundctl will use this to generate better suggestions\n"));
+}
+
 /** Start watch daemon and write PID to .groundctl/watch.pid */
 function startWatchDaemon(projectPath: string): number | null {
   try {
@@ -133,7 +194,7 @@ function installLaunchAgent(projectPath: string): boolean {
   }
 }
 
-export async function initCommand(options: { importFromGit?: boolean }): Promise<void> {
+export async function initCommand(options: { importFromGit?: boolean; skipVision?: boolean }): Promise<void> {
   const cwd = process.cwd();
   const projectName = cwd.split("/").pop() ?? "unknown";
 
@@ -220,7 +281,12 @@ export async function initCommand(options: { importFromGit?: boolean }): Promise
     }
   }
 
-  // 7. Prompt for LaunchAgent (macOS only)
+  // 7. VISION.md (if not skipped)
+  if (!options.skipVision) {
+    await createVisionMd(cwd, projectName);
+  }
+
+  // 8. Prompt for LaunchAgent (macOS only)
   if (process.platform === "darwin") {
     const laInstalled = existsSync(LAUNCH_AGENT_PLIST_PATH);
     if (!laInstalled) {

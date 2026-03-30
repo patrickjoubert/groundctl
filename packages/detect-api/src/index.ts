@@ -212,16 +212,49 @@ export default {
       const { allowed, remaining } = await checkRateLimit(env, ip);
       if (!allowed) return json({ error: `Rate limit exceeded (${RATE_LIMIT_PER_DAY}/day per IP)` }, 429);
 
-      let suggestBody: { completedFeatures?: Array<{name: string; description?: string}>; gitLog?: string };
+      let suggestBody: {
+        completedFeatures?: Array<{name: string; description?: string}>;
+        features_open?: string[];
+        gitLog?: string;
+        readme?: string;
+        vision?: string;
+      };
       try { suggestBody = await request.json() as typeof suggestBody; }
       catch { return json({ error: "Invalid JSON body" }, 400); }
 
       const completed = (suggestBody.completedFeatures ?? []).slice(0, 30);
+      const openFeatures = (suggestBody.features_open ?? []).slice(0, 20);
       const gitLog = (suggestBody.gitLog ?? "").slice(0, 3_000);
+      const readme = (suggestBody.readme ?? "").slice(0, 1_000);
+      const vision = (suggestBody.vision ?? "").slice(0, 2_000);
 
       const featureList = completed.map(f => `- ${f.name}${f.description ? `: ${f.description}` : ""}`).join("\n");
+      const openList = openFeatures.length > 0 ? openFeatures.map(f => `- ${f}`).join("\n") : "(none)";
 
-      const userPrompt = `This project has completed these features:\n${featureList || "(none yet)"}\n\n${gitLog ? `Recent git history:\n${gitLog}\n\n` : ""}Suggest two separate lists of features to build next:\n\n1. INCREMENTAL (3 features): Build directly on what already exists. Extend, improve, or deepen existing features. Short concrete names tied to what's already done.\n2. EXPAND (3 features): Brand new capabilities with high value. Different directions the product could grow.\n\nFor each list: exactly 2 must be parallel_safe:true (no dependency on each other). The 3rd must be parallel_safe:false and may list the first two in depends_on.\n\nRespond ONLY with valid JSON, no markdown:\n{"incremental":[{"name":"kebab-case","description":"one sentence","priority":"high","parallel_safe":true,"depends_on":[]}],"expand":[{"name":"kebab-case","description":"one sentence","priority":"high","parallel_safe":true,"depends_on":[]}]}`;
+      const visionSection = vision ? `\nProject vision:\n${vision}\n` : "";
+      const openSection = `\nCurrently open (not yet built):\n${openList}\n`;
+      const readmeSection = readme ? `\nProject README (first lines):\n${readme}\n` : "";
+      const gitSection = gitLog ? `\nRecent git history:\n${gitLog}\n` : "";
+
+      const userPrompt = `This project has completed these features:\n${featureList || "(none yet)"}
+${visionSection}${openSection}${readmeSection}${gitSection}
+Suggest two separate lists of features to build next:
+
+1. INCREMENTAL (3 features): Build directly on what already exists. Extend, improve, or deepen existing features. Short concrete names tied to what's already done. Must not duplicate anything in the "currently open" list.
+2. EXPAND (3 features): Brand new high-value capabilities. Different directions the product could grow. Must not duplicate anything in the "currently open" list.
+
+For each list: exactly 2 must be parallel_safe:true (no dependency on each other). The 3rd must be parallel_safe:false and may list the first two in depends_on.
+
+IMPORTANT — suggestions must:
+- Be strictly aligned with the project vision
+- If vision mentions EU/Europe → never suggest US features
+- If vision mentions AI agents → suggest agent-focused features, not human-facing widgets or consumer apps
+- Incremental features must directly extend existing done features using the same architecture and data patterns
+- Never suggest features that contradict 'What this is NOT' in the vision
+- Never suggest features already in the "currently open" list
+
+Respond ONLY with valid JSON, no markdown:
+{"incremental":[{"name":"kebab-case","description":"one sentence","priority":"high","parallel_safe":true,"depends_on":[]}],"expand":[{"name":"kebab-case","description":"one sentence","priority":"high","parallel_safe":true,"depends_on":[]}]}`;
 
       try {
         const response = await fetch("https://api.anthropic.com/v1/messages", {
