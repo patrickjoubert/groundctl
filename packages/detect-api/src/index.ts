@@ -219,7 +219,7 @@ export default {
 
       const featureList = completed.map(f => `- ${f.name}${f.description ? `: ${f.description}` : ""}`).join("\n");
 
-      const userPrompt = `This project has completed these features:\n${featureList || "(none yet)"}\n\n${gitLog ? `Recent git history:\n${gitLog}\n\n` : ""}Suggest exactly 3 new features to build next. Exactly 2 must be parallel_safe:true (no dependency on each other, can be built in parallel). The 3rd should be parallel_safe:false and may depend on the first two.\n\nFocus on: expanding coverage, improving quality, adding markets, tests, or new capabilities relevant to this specific project.\n\nRespond ONLY with valid JSON, no markdown:\n{"features":[{"name":"kebab-case-name","description":"one sentence","priority":"high","parallel_safe":true,"depends_on":[]}]}`;
+      const userPrompt = `This project has completed these features:\n${featureList || "(none yet)"}\n\n${gitLog ? `Recent git history:\n${gitLog}\n\n` : ""}Suggest two separate lists of features to build next:\n\n1. INCREMENTAL (3 features): Build directly on what already exists. Extend, improve, or deepen existing features. Short concrete names tied to what's already done.\n2. EXPAND (3 features): Brand new capabilities with high value. Different directions the product could grow.\n\nFor each list: exactly 2 must be parallel_safe:true (no dependency on each other). The 3rd must be parallel_safe:false and may list the first two in depends_on.\n\nRespond ONLY with valid JSON, no markdown:\n{"incremental":[{"name":"kebab-case","description":"one sentence","priority":"high","parallel_safe":true,"depends_on":[]}],"expand":[{"name":"kebab-case","description":"one sentence","priority":"high","parallel_safe":true,"depends_on":[]}]}`;
 
       try {
         const response = await fetch("https://api.anthropic.com/v1/messages", {
@@ -243,8 +243,11 @@ export default {
         const text = textBlock.text.replace(/^```[^\n]*\n?/, "").replace(/\n?```$/, "").trim();
         const match = text.match(/\{[\s\S]*\}/);
         if (!match) throw new Error("No JSON in model response");
-        const parsed = JSON.parse(match[0]) as { features?: unknown };
-        return new Response(JSON.stringify({ features: parsed.features ?? [] }), {
+        const parsed = JSON.parse(match[0]) as { incremental?: unknown; expand?: unknown; features?: unknown };
+        const payload = (parsed.incremental || parsed.expand)
+          ? { incremental: parsed.incremental ?? [], expand: parsed.expand ?? [] }
+          : { incremental: parsed.features ?? [], expand: [] };
+        return new Response(JSON.stringify(payload), {
           headers: {
             "content-type": "application/json; charset=utf-8",
             "x-rate-limit-remaining": String(remaining),
