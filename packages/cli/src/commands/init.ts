@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 import { spawn, execSync } from "node:child_process";
 import { createInterface } from "node:readline";
-import chalk from "chalk";
+import chalk from "../colors.js";
 import { openDb, closeDb } from "../storage/db.js";
 import { generateProjectState, generateAgentsMd } from "../generators/markdown.js";
 import { importFromGit } from "../ingest/git-import.js";

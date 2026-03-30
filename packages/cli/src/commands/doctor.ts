@@ -14,7 +14,7 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 import { createRequire } from "node:module";
 import { request as httpsRequest } from "node:https";
-import chalk from "chalk";
+import chalk from "../colors.js";
 import { openDb, closeDb } from "../storage/db.js";
 import { queryOne } from "../storage/query.js";
 

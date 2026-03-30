@@ -2,7 +2,7 @@ import { existsSync, readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { homedir } from "node:os";
 import { createInterface } from "node:readline";
-import chalk from "chalk";
+import chalk from "../colors.js";
 import type { Database } from "sql.js";
 import { openDb, closeDb, saveDb } from "../storage/db.js";
 import { parseTranscript } from "../ingest/claude-parser.js";

@@ -1,6 +1,6 @@
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
-import chalk from "chalk";
+import chalk from "../colors.js";
 import { openDb, closeDb } from "../storage/db.js";
 import { generateProjectState, generateAgentsMd } from "../generators/markdown.js";
 

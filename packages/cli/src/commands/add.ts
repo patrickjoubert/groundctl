@@ -1,4 +1,4 @@
-import chalk from "chalk";
+import chalk from "../colors.js";
 import { randomUUID } from "node:crypto";
 import { openDb, closeDb, saveDb } from "../storage/db.js";
 import { queryOne } from "../storage/query.js";

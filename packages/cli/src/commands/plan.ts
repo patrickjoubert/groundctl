@@ -17,7 +17,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { execSync } from "node:child_process";
 import { request as httpsRequest } from "node:https";
-import chalk from "chalk";
+import chalk from "../colors.js";
 import { openDb, closeDb, saveDb } from "../storage/db.js";
 import { query, queryOne } from "../storage/query.js";
 

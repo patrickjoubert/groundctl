@@ -1,4 +1,4 @@
-import chalk from "chalk";
+import chalk from "../colors.js";
 import initSqlJs from "sql.js";
 import { readFileSync, writeFileSync } from "node:fs";
 import * as readline from "node:readline";

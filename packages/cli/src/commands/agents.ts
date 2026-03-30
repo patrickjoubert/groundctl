@@ -1,4 +1,4 @@
-import chalk from "chalk";
+import chalk from "../colors.js";
 import initSqlJs from "sql.js";
 import { readFileSync } from "node:fs";
 import { findDbPath } from "./dashboard.js";

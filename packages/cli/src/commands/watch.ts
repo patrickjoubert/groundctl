@@ -11,7 +11,7 @@ import type { FSWatcher } from "node:fs";
 import { join, resolve } from "node:path";
 import { homedir } from "node:os";
 import { spawn } from "node:child_process";
-import chalk from "chalk";
+import chalk from "../colors.js";
 import { openDb, closeDb, saveDb } from "../storage/db.js";
 import { parseTranscript } from "../ingest/claude-parser.js";
 import { syncCommand } from "./sync.js";

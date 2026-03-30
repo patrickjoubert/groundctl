@@ -20,7 +20,7 @@ import { planCommand } from "./commands/plan.js";
 import { launchCommand } from "./commands/launch.js";
 import { agentsCommand } from "./commands/agents.js";
 import { staleCommand } from "./commands/stale.js";
-import chalk from "chalk";
+import chalk from "./colors.js";
 
 const require = createRequire(import.meta.url);
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

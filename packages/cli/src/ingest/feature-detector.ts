@@ -16,7 +16,7 @@ import { execSync } from "node:child_process";
 import { request as httpsRequest } from "node:https";
 import { createInterface } from "node:readline";
 import type { Database } from "sql.js";
-import chalk from "chalk";
+import chalk from "../colors.js";
 import { saveDb } from "../storage/db.js";
 import { queryOne } from "../storage/query.js";
 

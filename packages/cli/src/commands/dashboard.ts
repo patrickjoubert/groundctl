@@ -3,7 +3,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { exec } from "node:child_process";
 import { URL } from "node:url";
-import chalk from "chalk";
+import chalk from "../colors.js";
 import initSqlJs from "sql.js";
 
 // ── Types ────────────────────────────────────────────────────────────────────

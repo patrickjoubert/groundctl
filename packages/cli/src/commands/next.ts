@@ -1,4 +1,4 @@
-import chalk from "chalk";
+import chalk from "../colors.js";
 import { openDb, closeDb } from "../storage/db.js";
 import { query } from "../storage/query.js";
 

@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { join } from "node:path";
-import chalk from "chalk";
+import chalk from "../colors.js";
 import { findDbPath, claimFeatureInDb } from "./dashboard.js";
 
 export async function launchCommand(featureName: string): Promise<void> {
