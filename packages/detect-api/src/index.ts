@@ -196,6 +196,66 @@ export default {
       }
     }
 
+    // POST /suggest — propose 3 new features when project has no open work
+    if (url.pathname === "/suggest" && request.method === "POST") {
+      const ua = request.headers.get("user-agent") ?? "";
+      if (!ua.toLowerCase().includes("groundctl")) {
+        return json({ error: "Forbidden: set User-Agent to include 'groundctl'" }, 403);
+      }
+      const ip = (
+        request.headers.get("cf-connecting-ip") ??
+        request.headers.get("x-forwarded-for") ??
+        "unknown"
+      ).split(",")[0].trim();
+      const { allowed, remaining } = await checkRateLimit(env, ip);
+      if (!allowed) return json({ error: `Rate limit exceeded (${RATE_LIMIT_PER_DAY}/day per IP)` }, 429);
+
+      let suggestBody: { completedFeatures?: Array<{name: string; description?: string}>; gitLog?: string };
+      try { suggestBody = await request.json() as typeof suggestBody; }
+      catch { return json({ error: "Invalid JSON body" }, 400); }
+
+      const completed = (suggestBody.completedFeatures ?? []).slice(0, 30);
+      const gitLog = (suggestBody.gitLog ?? "").slice(0, 3_000);
+
+      const featureList = completed.map(f => `- ${f.name}${f.description ? `: ${f.description}` : ""}`).join("\n");
+
+      const userPrompt = `This project has completed these features:\n${featureList || "(none yet)"}\n\n${gitLog ? `Recent git history:\n${gitLog}\n\n` : ""}Suggest exactly 3 new features to build next. Exactly 2 must be parallel_safe:true (no dependency on each other, can be built in parallel). The 3rd should be parallel_safe:false and may depend on the first two.\n\nFocus on: expanding coverage, improving quality, adding markets, tests, or new capabilities relevant to this specific project.\n\nRespond ONLY with valid JSON, no markdown:\n{"features":[{"name":"kebab-case-name","description":"one sentence","priority":"high","parallel_safe":true,"depends_on":[]}]}`;
+
+      try {
+        const response = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: {
+            "x-api-key": env.ANTHROPIC_API_KEY,
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            model: MODEL,
+            max_tokens: 800,
+            system: "You are a product strategist. Suggest the next most valuable features to build for a software project.",
+            messages: [{ role: "user", content: userPrompt }],
+          }),
+        });
+        const msg = await response.json() as ClaudeMessage;
+        if (msg.error) throw new Error(msg.error.message);
+        const textBlock = (msg.content ?? []).find((b) => b.type === "text");
+        if (!textBlock) throw new Error("Empty response from model");
+        const text = textBlock.text.replace(/^```[^\n]*\n?/, "").replace(/\n?```$/, "").trim();
+        const match = text.match(/\{[\s\S]*\}/);
+        if (!match) throw new Error("No JSON in model response");
+        const parsed = JSON.parse(match[0]) as { features?: unknown };
+        return new Response(JSON.stringify({ features: parsed.features ?? [] }), {
+          headers: {
+            "content-type": "application/json; charset=utf-8",
+            "x-rate-limit-remaining": String(remaining),
+            ...CORS_HEADERS,
+          },
+        });
+      } catch (err) {
+        return json({ error: `Suggest failed: ${(err as Error).message}` }, 500);
+      }
+    }
+
     // Only POST /detect from here
     if (url.pathname !== "/detect" || request.method !== "POST") {
       return json({ error: "Not found" }, 404);

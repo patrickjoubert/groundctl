@@ -65,6 +65,7 @@ program
 program
   .command("next")
   .description("Show next available (unclaimed) feature")
+  .option("--suggest", "When no features available, ask Claude for suggestions")
   .action(nextCommand);
 
 program
