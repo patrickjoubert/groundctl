@@ -2,8 +2,9 @@ import chalk from "../colors.js";
 import { createInterface } from "node:readline";
 import { randomUUID } from "node:crypto";
 import { execSync } from "node:child_process";
-import { openDb, closeDb, saveDb } from "../storage/db.js";
+import { openDb, closeDb, saveDb, getDbPath } from "../storage/db.js";
 import { query, queryOne } from "../storage/query.js";
+import type { Database } from "sql.js";
 
 const SUGGEST_URL = "https://detect.groundctl.org/suggest";
 
@@ -57,27 +58,97 @@ function printGroup(label: string, features: SuggestedFeature[]): void {
   console.log();
 }
 
-function importFeatures(db: ReturnType<typeof openDb> extends Promise<infer T> ? T : never, features: SuggestedFeature[]): number {
-  let count = 0;
-  for (const f of features) {
-    const name = f.name.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-|-$/g, "");
-    const exists = queryOne(db, "SELECT id FROM features WHERE name = ?", [name]);
-    if (exists) continue;
-    const id = randomUUID();
-    const priority = ["critical", "high", "medium", "low"].includes(f.priority) ? f.priority : "medium";
-    db.run(
-      `INSERT INTO features (id, name, priority, description) VALUES (?, ?, ?, ?)`,
-      [id, name, priority, f.description ?? null]
-    );
-    count++;
-  }
-  return count;
-}
-
 function printHint(): void {
   console.log(chalk.gray("  Or add your own:"));
   console.log(chalk.gray("  groundctl add feature -n 'my-feature' -p high"));
   console.log(chalk.gray("  groundctl plan 'describe what you want to build'\n"));
+}
+
+/** Claim a feature by name using an already-open db. Returns true if claimed. */
+function claimInDb(db: Database, name: string): boolean {
+  const feat = queryOne<{ id: string; status: string }>(
+    db, "SELECT id, status FROM features WHERE name = ?", [name]
+  );
+  if (!feat || feat.status === "done") return false;
+
+  const already = queryOne<{ c: number }>(
+    db, "SELECT COUNT(*) as c FROM claims WHERE feature_id = ? AND released_at IS NULL", [feat.id]
+  );
+  if ((already?.c ?? 0) > 0) return true; // already claimed — count as ok
+
+  const sess = queryOne<{ id: string }>(db, "SELECT id FROM sessions ORDER BY started_at DESC LIMIT 1");
+  const sessionId = sess?.id ?? "cli";
+
+  db.run(
+    "INSERT INTO claims (feature_id, session_id, claimed_at) VALUES (?, ?, datetime('now'))",
+    [feat.id, sessionId]
+  );
+  db.run(
+    "UPDATE features SET status = 'in_progress', updated_at = datetime('now') WHERE id = ?",
+    [feat.id]
+  );
+  return true;
+}
+
+function printLaunchInstructions(claimedNames: string[], projectDir: string): void {
+  if (claimedNames.length === 0) return;
+
+  console.log(chalk.bold(`\n  ${claimedNames.length} feature${claimedNames.length > 1 ? "s" : ""} ready to launch in parallel:`));
+  for (const name of claimedNames) {
+    console.log(`  ${chalk.green("✓")} ${chalk.white(name)} ${chalk.gray("— claimed")}`);
+  }
+
+  console.log(chalk.bold("\n  Launch in separate terminals:\n"));
+  claimedNames.forEach((_, i) => {
+    console.log(chalk.gray(`  Terminal ${i + 1}:`));
+    console.log(`    cd ${projectDir}`);
+    console.log(`    claude\n`);
+  });
+
+  console.log(chalk.gray("  Both agents will read AGENTS.md and know what to build.\n"));
+  console.log(chalk.gray("  groundctl agents     → monitor progress"));
+  console.log(chalk.gray("  groundctl stale      → detect if an agent stops"));
+  console.log(chalk.gray("  groundctl dashboard  → visual cockpit at :4242\n"));
+}
+
+async function importAndClaim(features: SuggestedFeature[], projectDir: string): Promise<void> {
+  const db = await openDb();
+  const imported: string[] = [];
+
+  for (const f of features) {
+    const name = f.name.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-|-$/g, "");
+    const exists = queryOne(db, "SELECT id FROM features WHERE name = ?", [name]);
+    if (!exists) {
+      const id = randomUUID();
+      const priority = ["critical", "high", "medium", "low"].includes(f.priority) ? f.priority : "medium";
+      db.run(
+        `INSERT INTO features (id, name, priority, description) VALUES (?, ?, ?, ?)`,
+        [id, name, priority, f.description ?? null]
+      );
+      imported.push(name);
+    } else {
+      imported.push(name);
+    }
+  }
+
+  // Auto-claim the parallel_safe features
+  const parallelNames = features
+    .filter(f => f.parallel_safe)
+    .map(f => f.name.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-|-$/g, ""));
+
+  const claimed: string[] = [];
+  for (const name of parallelNames) {
+    if (claimInDb(db, name)) claimed.push(name);
+  }
+
+  saveDb();
+  closeDb();
+
+  const total = new Set(imported).size;
+  console.log(chalk.green(`\n  ✓ ${total} feature${total !== 1 ? "s" : ""} imported\n`));
+
+  printLaunchInstructions(claimed, projectDir);
+  printHint();
 }
 
 async function runSuggest(cwd: string): Promise<void> {
@@ -156,14 +227,7 @@ async function runSuggest(cwd: string): Promise<void> {
     return;
   }
 
-  const db2 = await openDb();
-  const count = importFeatures(db2 as Parameters<typeof importFeatures>[0], toImport);
-  saveDb();
-  closeDb();
-
-  console.log(chalk.green(`\n  ✓ ${count} feature${count !== 1 ? "s" : ""} imported\n`));
-  console.log(chalk.gray(`  Run: groundctl next\n`));
-  printHint();
+  await importAndClaim(toImport, cwd);
 }
 
 export async function nextCommand(options: { suggest?: boolean }): Promise<void> {
