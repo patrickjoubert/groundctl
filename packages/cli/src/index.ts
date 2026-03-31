@@ -20,6 +20,7 @@ import { planCommand } from "./commands/plan.js";
 import { launchCommand } from "./commands/launch.js";
 import { agentsCommand } from "./commands/agents.js";
 import { staleCommand } from "./commands/stale.js";
+import { exportCommand } from "./commands/export.js";
 import chalk from "./colors.js";
 
 const require = createRequire(import.meta.url);
@@ -186,6 +187,20 @@ program
   .command("stale")
   .description("List and release stale claims (>2h inactive)")
   .action(staleCommand);
+
+program
+  .command("export")
+  .description("Export product plan for orchestrators (Conductor, Agent Teams)")
+  .option("--conductor", "Export as .conductor/tasks.md for Conductor")
+  .option("--agent-teams", "Export as .claude/tasks/groundctl-export.json for Claude Code Agent Teams")
+  .option("--json", "Export as groundctl-export.json (generic)")
+  .action((opts) =>
+    exportCommand({
+      conductor: opts.conductor,
+      agentTeams: opts.agentTeams,
+      json: opts.json,
+    })
+  );
 
 // ── Unknown command handler ──────────────────────────────────────────────────
 program.on("command:*", (operands: string[]) => {

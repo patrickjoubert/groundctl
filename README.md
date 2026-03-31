@@ -112,10 +112,33 @@ Three views — **LE PLAN** (full product map, feature cards by group), **LE CHA
 
 ---
 
+## Works with your orchestrator
+
+groundctl tells your agents what to build.
+Your orchestrator runs them.
+
+```bash
+groundctl export --conductor
+→ .conductor/tasks.md — ready to import
+
+groundctl export --agent-teams
+→ .claude/tasks/groundctl-export.json
+```
+
+Compatible with Conductor, Claude Code Agent Teams,
+and any tool that reads task lists.
+
+> "Conductor runs your agents.
+>  groundctl tells them what to build."
+
+---
+
 ## Works with
 
 - **Claude Code** — hooks installed automatically
 - **Codex CLI** — hooks included
+- **Conductor** — `groundctl export --conductor`
+- **Claude Code Agent Teams** — `groundctl export --agent-teams`
 - **Any agent** — CLI is agent-agnostic
 
 ---

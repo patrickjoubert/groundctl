@@ -39,6 +39,15 @@ It's that humans can't track them when they scale.
 
 That's what groundctl solves.
 
+groundctl works alongside your orchestrator.
+Use Conductor or Claude Code Agent Teams to run agents —
+use groundctl to know what they should build.
+
+  groundctl export --conductor
+  → exports your product plan as Conductor tasks
+  → each agent reads PROJECT_STATE.md on startup
+  → no more 'what should I build?' at session start
+
 Install:
   npm install -g @groundctl/cli
   cd your-project
