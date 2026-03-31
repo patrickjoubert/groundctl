@@ -14,6 +14,7 @@ import { spawn } from "node:child_process";
 import chalk from "../colors.js";
 import { openDb, closeDb, saveDb } from "../storage/db.js";
 import { parseTranscript } from "../ingest/claude-parser.js";
+import { parseCodexTranscript, readCodexSessionCwd } from "../ingest/codex-parser.js";
 import { syncCommand } from "./sync.js";
 import { queryOne } from "../storage/query.js";
 
@@ -24,6 +25,9 @@ const DEBOUNCE_MS = 8_000;
 
 /** ms between polls when waiting for the transcript dir to appear */
 const DIR_POLL_MS = 5_000;
+
+/** ms between polls for date-directory rollover (Codex) */
+const DATE_POLL_MS = 60_000;
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -59,6 +63,33 @@ function findTranscriptDir(projectPath: string): string | null {
     }
   }
   return null;
+}
+
+/**
+ * Find the Codex sessions base directory.
+ * Checks known locations and returns the first that exists.
+ */
+function findCodexSessionsDir(): string | null {
+  const candidates = [
+    join(homedir(), ".codex", "sessions"),
+    join(homedir(), "Library", "Application Support", "Codex", "sessions"),
+  ];
+  for (const p of candidates) {
+    if (existsSync(p)) return p;
+  }
+  return null;
+}
+
+/**
+ * Return the path for today's Codex session directory (YYYY/MM/DD).
+ * Uses local date to match Codex's naming convention.
+ */
+function todayCodexDir(sessionsBaseDir: string): string {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return join(sessionsBaseDir, String(y), m, day);
 }
 
 /** Return file size in bytes, or 0 if the file doesn't exist. */
@@ -104,8 +135,13 @@ function processAlive(pid: number): boolean {
 
 /**
  * Run ingest + sync for a single transcript file and print a one-line summary.
+ * For Codex sessions, filters out sessions not belonging to projectPath.
  */
-async function runIngest(transcriptPath: string, projectPath: string): Promise<void> {
+async function runIngest(
+  transcriptPath: string,
+  projectPath: string,
+  source: "claude-code" | "codex" = "claude-code"
+): Promise<void> {
   const filename = transcriptPath.split("/").slice(-2).join("/");
   console.log(
     chalk.gray(`\n  [${new Date().toLocaleTimeString()}] `) +
@@ -113,7 +149,15 @@ async function runIngest(transcriptPath: string, projectPath: string): Promise<v
   );
 
   try {
-    const parsed = parseTranscript(transcriptPath, "auto", projectPath);
+    const parsed = source === "codex"
+      ? parseCodexTranscript(transcriptPath, projectPath)
+      : parseTranscript(transcriptPath, "auto", projectPath);
+
+    // Codex: null means session belongs to a different project — skip silently
+    if (!parsed) {
+      return;
+    }
+
     const db = await openDb();
 
     const sessionId = parsed.sessionId;
@@ -126,7 +170,7 @@ async function runIngest(transcriptPath: string, projectPath: string): Promise<v
     } else {
       db.run(
         "INSERT INTO sessions (id, agent, started_at, ended_at, summary) VALUES (?, ?, ?, ?, ?)",
-        [sessionId, "claude-code", parsed.startedAt, parsed.endedAt, parsed.summary]
+        [sessionId, parsed.agent, parsed.startedAt, parsed.endedAt, parsed.summary]
       );
     }
 
@@ -170,8 +214,9 @@ async function runIngest(transcriptPath: string, projectPath: string): Promise<v
     if (parsed.commits.length > 0) parts.push(`${parsed.commits.length} commit${parsed.commits.length !== 1 ? "s" : ""}`);
     if (newDecisions > 0) parts.push(`${newDecisions} decision${newDecisions !== 1 ? "s" : ""} captured`);
     const summary = parts.length > 0 ? parts.join(", ") : "no new data";
+    const agentLabel = source === "codex" ? chalk.blue("[codex] ") : "";
 
-    console.log(chalk.green(`  ✓ Session ingested — ${summary}`));
+    console.log(chalk.green(`  ✓ ${agentLabel}Session ingested — ${summary}`));
 
     await syncCommand({ silent: true });
     console.log(chalk.gray("  ↳ PROJECT_STATE.md + AGENTS.md updated"));
@@ -180,21 +225,13 @@ async function runIngest(transcriptPath: string, projectPath: string): Promise<v
   }
 }
 
-// ── Core watcher logic ───────────────────────────────────────────────────────
+// ── Claude Code watcher ──────────────────────────────────────────────────────
 
-function startWatcher(transcriptDir: string, projectPath: string): void {
-  // Timers waiting to fire per file
+function startClaudeWatcher(transcriptDir: string, projectPath: string): void {
   const pending = new Map<string, ReturnType<typeof setTimeout>>();
-  // Files we've already ingested in this watcher session (prevents double-ingest)
   const ingested = new Set<string>();
-  // Per-file fs.FSWatcher instances
   const fileWatchers = new Map<string, FSWatcher>();
 
-  /**
-   * Schedule (or re-schedule) an ingest for a transcript file.
-   * Resets on every detected write so we only fire when the file is stable
-   * for DEBOUNCE_MS — meaning the session has likely ended.
-   */
   function schedule(filePath: string): void {
     if (ingested.has(filePath)) return;
 
@@ -203,67 +240,149 @@ function startWatcher(transcriptDir: string, projectPath: string): void {
 
     const timer = setTimeout(async () => {
       pending.delete(filePath);
-      if (ingested.has(filePath)) return; // raced with another trigger
-
-      // Skip empty files (session opened but nothing written yet)
+      if (ingested.has(filePath)) return;
       if (fileSize(filePath) === 0) return;
 
       ingested.add(filePath);
       fileWatchers.get(filePath)?.close();
       fileWatchers.delete(filePath);
 
-      await runIngest(filePath, projectPath);
+      await runIngest(filePath, projectPath, "claude-code");
     }, DEBOUNCE_MS);
 
     pending.set(filePath, timer);
   }
 
-  /**
-   * Start watching a specific JSONL file for content changes.
-   * Avoids duplicating watchers.
-   */
   function watchFile(filePath: string): void {
     if (fileWatchers.has(filePath) || ingested.has(filePath)) return;
     try {
-      const w = fsWatch(filePath, () => {
-        schedule(filePath); // every write resets the debounce clock
-      });
+      const w = fsWatch(filePath, () => schedule(filePath));
       fileWatchers.set(filePath, w);
     } catch {
       // File might have disappeared — ignore
     }
   }
 
-  // ── Seed: mark all existing JSONL files as already-seen ──────────────────
-  // We don't re-ingest files that existed before the watcher started.
+  // Seed: mark all existing JSONL files as already-seen
   if (existsSync(transcriptDir)) {
     for (const f of readdirSync(transcriptDir)) {
-      if (f.endsWith(".jsonl")) {
-        ingested.add(join(transcriptDir, f));
-      }
+      if (f.endsWith(".jsonl")) ingested.add(join(transcriptDir, f));
     }
   }
 
-  // ── Watch directory for new JSONL files ───────────────────────────────────
+  // Watch directory for new JSONL files
   fsWatch(transcriptDir, (_event, filename) => {
     if (!filename?.endsWith(".jsonl")) return;
     const fp = join(transcriptDir, filename);
     if (!existsSync(fp) || ingested.has(fp)) return;
 
-    // First time we see this file — attach a per-file watcher and arm debounce
     if (!fileWatchers.has(fp)) {
       watchFile(fp);
       schedule(fp);
     }
   });
 
-  console.log(chalk.bold("\n  groundctl watch") + chalk.gray(" — auto-ingest on session end\n"));
   console.log(
-    chalk.gray("  Watching: ") +
-    chalk.blue(transcriptDir.replace(homedir(), "~"))
+    chalk.gray("  Claude Code: ") +
+    chalk.blue(transcriptDir.replace(homedir(), "~")) +
+    chalk.green(" ✓")
   );
-  console.log(chalk.gray("  Stability threshold: ") + chalk.white(`${DEBOUNCE_MS / 1000}s`));
-  console.log(chalk.gray("  Press Ctrl+C to stop.\n"));
+}
+
+// ── Codex watcher ─────────────────────────────────────────────────────────────
+
+function startCodexWatcher(sessionsBaseDir: string, projectPath: string): void {
+  const pending = new Map<string, ReturnType<typeof setTimeout>>();
+  const ingested = new Set<string>();
+  const fileWatchers = new Map<string, FSWatcher>();
+
+  let currentDateDir: string | null = null;
+  let dirWatcher: FSWatcher | null = null;
+
+  function schedule(filePath: string): void {
+    if (ingested.has(filePath)) return;
+
+    const existing = pending.get(filePath);
+    if (existing) clearTimeout(existing);
+
+    const timer = setTimeout(async () => {
+      pending.delete(filePath);
+      if (ingested.has(filePath)) return;
+      if (fileSize(filePath) === 0) return;
+
+      ingested.add(filePath);
+      fileWatchers.get(filePath)?.close();
+      fileWatchers.delete(filePath);
+
+      await runIngest(filePath, projectPath, "codex");
+    }, DEBOUNCE_MS);
+
+    pending.set(filePath, timer);
+  }
+
+  function watchFile(filePath: string): void {
+    if (fileWatchers.has(filePath) || ingested.has(filePath)) return;
+    // Lightweight project-match check: read session_meta cwd
+    // (file may be empty right after creation — that's fine, we'll check in runIngest)
+    if (fileSize(filePath) > 0) {
+      const cwd = readCodexSessionCwd(filePath);
+      if (cwd && cwd !== projectPath) return; // different project
+    }
+    try {
+      const w = fsWatch(filePath, () => schedule(filePath));
+      fileWatchers.set(filePath, w);
+      schedule(filePath); // arm debounce immediately
+    } catch {
+      // ignore
+    }
+  }
+
+  function hookDateDir(dateDir: string): void {
+    if (currentDateDir === dateDir) return;
+
+    // Close previous dir watcher
+    dirWatcher?.close();
+    currentDateDir = dateDir;
+
+    // Seed: mark all existing JSONL files as already-seen
+    if (existsSync(dateDir)) {
+      for (const f of readdirSync(dateDir)) {
+        if (f.endsWith(".jsonl")) ingested.add(join(dateDir, f));
+      }
+    }
+
+    // Watch the date dir for new JSONL files
+    try {
+      dirWatcher = fsWatch(dateDir, (_event, filename) => {
+        if (!filename?.endsWith(".jsonl")) return;
+        const fp = join(dateDir, filename);
+        if (!existsSync(fp) || ingested.has(fp)) return;
+        if (!fileWatchers.has(fp)) watchFile(fp);
+      });
+    } catch {
+      // Date dir doesn't exist yet — that's fine, the poller will retry
+    }
+  }
+
+  // Initial setup for today's dir
+  hookDateDir(todayCodexDir(sessionsBaseDir));
+
+  // Poll for midnight rollover (new date dir)
+  const datePoller = setInterval(() => {
+    const newDir = todayCodexDir(sessionsBaseDir);
+    if (newDir !== currentDateDir) hookDateDir(newDir);
+  }, DATE_POLL_MS);
+
+  process.on("exit", () => {
+    clearInterval(datePoller);
+    dirWatcher?.close();
+  });
+
+  console.log(
+    chalk.gray("  Codex:       ") +
+    chalk.blue(sessionsBaseDir.replace(homedir(), "~")) +
+    chalk.green(" ✓")
+  );
 }
 
 // ── Export ───────────────────────────────────────────────────────────────────
@@ -282,7 +401,6 @@ export async function watchCommand(options: { daemon?: boolean; projectPath?: st
     });
     child.unref();
 
-    // Store PID in .groundctl/watch.pid
     const groundctlDir = join(projectPath, ".groundctl");
     writePidFile(groundctlDir, child.pid!);
 
@@ -301,7 +419,7 @@ export async function watchCommand(options: { daemon?: boolean; projectPath?: st
     process.exit(1);
   }
 
-  // ── Find transcript directory, waiting if it doesn't exist yet ───────────
+  // ── Find Claude Code transcript directory ─────────────────────────────────
   let transcriptDir = findTranscriptDir(projectPath);
 
   if (!transcriptDir) {
@@ -323,11 +441,30 @@ export async function watchCommand(options: { daemon?: boolean; projectPath?: st
     });
   }
 
-  startWatcher(transcriptDir!, projectPath);
+  // ── Print header ──────────────────────────────────────────────────────────
+  console.log(chalk.bold("\n  groundctl watch") + chalk.gray(" — auto-ingest on session end\n"));
+  console.log(chalk.gray("  Watching:"));
+
+  // ── Start Claude Code watcher ─────────────────────────────────────────────
+  startClaudeWatcher(transcriptDir!, projectPath);
+
+  // ── Start Codex watcher (best-effort) ─────────────────────────────────────
+  const codexDir = findCodexSessionsDir();
+  if (codexDir) {
+    startCodexWatcher(codexDir, projectPath);
+  } else {
+    console.log(
+      chalk.gray("  Codex:       ") +
+      chalk.gray("~/.codex/sessions not found") +
+      chalk.yellow(" ✗")
+    );
+  }
+
+  console.log(chalk.gray(`\n  Stability threshold: `) + chalk.white(`${DEBOUNCE_MS / 1000}s`));
+  console.log(chalk.gray("  Press Ctrl+C to stop.\n"));
 
   // Keep process alive
   await new Promise<void>(() => {
-    // Never resolves — we live until Ctrl+C
     process.on("SIGINT", () => {
       console.log(chalk.gray("\n  Watcher stopped.\n"));
       process.exit(0);

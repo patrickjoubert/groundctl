@@ -1,5 +1,5 @@
 # groundctl — Product State
-Last updated: 2026-03-30 | Last session: 44e2b8a9 | Progress: 100%
+Last updated: 2026-03-31 | Last session: 44e2b8a9 | Progress: 100%
 
 ## What's been built
 - foundation-cli
@@ -28,6 +28,7 @@ Last updated: 2026-03-30 | Last session: 44e2b8a9 | Progress: 100%
 - feature/dashboard-v3 (completed 2026-03-29)
 - feature/repo-cleanup (completed 2026-03-29)
 - feature/repositioning (completed 2026-03-29)
+- codex-watch (completed 2026-03-31)
 
 ## Architecture log
 - auto: all commits were in a short time span. The file tracking is solid. Now P5 — groundctl tracks itself

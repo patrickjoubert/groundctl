@@ -153,7 +153,24 @@ export async function doctorCommand(): Promise<void> {
     }
   }
 
-  // 5. LaunchAgent (macOS only)
+  // 5. Codex integration
+  const codexSessionsDir = join(homedir(), ".codex", "sessions");
+  const codexHooksPath   = join(cwd, ".codex", "hooks", "post-session.sh");
+
+  if (existsSync(codexSessionsDir)) {
+    ok(`Codex sessions: found (${codexSessionsDir.replace(homedir(), "~")})`);
+  } else {
+    warn("Codex sessions: ~/.codex/sessions not found — Codex not installed or never run");
+  }
+
+  if (existsSync(codexHooksPath)) {
+    ok(`Codex hooks: post-session.sh installed`);
+  } else {
+    warn("Codex hooks: not installed — groundctl won't auto-ingest Codex sessions");
+    info("Re-run: groundctl init   to install hooks");
+  }
+
+  // 6. LaunchAgent (macOS only)
   if (process.platform === "darwin") {
     if (existsSync(LAUNCH_AGENT_PLIST)) {
       ok(`LaunchAgent: installed (${LAUNCH_AGENT_PLIST.replace(homedir(), "~")})`);

@@ -13,7 +13,7 @@ export interface ParsedSession {
   decisions: ParsedDecision[];
   plannedFeatures: ParsedPlannedFeature[];
   summary: string;
-  agent: "claude-code";
+  agent: "claude-code" | "codex";
 }
 
 export interface ParsedFile {
