@@ -1,6 +1,6 @@
 {
   "name": "@groundctl/cli",
-  "version": "0.8.8",
+  "version": "0.8.9",
   "description": "Always know what to build next.",
   "license": "MIT",
   "bin": {
@@ -33,18 +33,21 @@
   },
   "scripts": {
     "build": "tsup src/index.ts --format esm --dts --clean",
-    "dev": "tsup src/index.ts --format esm --watch"
+    "dev": "tsup src/index.ts --format esm --watch",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "engines": {
     "node": ">=18"
   },
   "dependencies": {
-    "sql.js": "^1.10.0",
-    "commander": "^12.1.0"
+    "commander": "^12.1.0",
+    "sql.js": "^1.10.0"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
     "tsup": "^8.0.0",
-    "typescript": "^5.4.0"
+    "typescript": "^5.4.0",
+    "vitest": "^4.1.2"
   }
 }
