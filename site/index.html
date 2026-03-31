@@ -51,141 +51,6 @@
   </script>
 
   <link rel="stylesheet" href="style.css">
-  <style>
-    /* ── Page-specific additions ── */
-    .hook {
-      padding: 80px 0;
-      text-align: center;
-      border-top: 1px solid #333;
-    }
-    .hook-line {
-      font-size: 1.15rem;
-      color: var(--text-mid);
-      line-height: 1.9;
-    }
-    .hook-line strong {
-      color: #fff;
-      font-size: 1.2rem;
-    }
-
-    .problem-list {
-      padding: 0 0 80px;
-      border-bottom: 1px solid var(--border);
-      text-align: center;
-    }
-    .problem-list p {
-      font-size: 20px;
-      color: #e8e8e8;
-      margin-bottom: 14px;
-      font-weight: 400;
-    }
-    .problem-list ul {
-      list-style: none;
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-    }
-    .problem-list li {
-      font-size: 18px;
-      color: #cccccc;
-      padding-left: 0;
-    }
-    .problem-list li::before {
-      content: "→ ";
-      color: var(--text-dim);
-    }
-
-    .core-loop {
-      padding: 80px 0;
-    }
-    .core-loop h2 {
-      font-size: 1.1rem;
-      font-weight: 600;
-      color: var(--text-dim);
-      text-transform: uppercase;
-      letter-spacing: 0.14em;
-      font-family: var(--mono);
-      margin-bottom: 28px;
-    }
-
-    .how-steps {
-      padding: 80px 0;
-      border-top: 1px solid var(--border);
-    }
-    .how-steps h2 {
-      font-size: 1.1rem;
-      font-weight: 600;
-      color: var(--text-dim);
-      text-transform: uppercase;
-      letter-spacing: 0.14em;
-      font-family: var(--mono);
-      margin-bottom: 28px;
-    }
-    .how-step-grid {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 16px;
-      margin-bottom: 28px;
-    }
-    .how-step-card {
-      background: var(--bg2);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 22px 20px;
-    }
-    .how-step-num {
-      font-family: var(--mono);
-      font-size: 1.4rem;
-      color: var(--green);
-      font-weight: 700;
-      margin-bottom: 10px;
-    }
-    .how-step-cmd {
-      font-family: var(--mono);
-      font-size: 0.9rem;
-      color: var(--green);
-      margin-bottom: 8px;
-    }
-    .how-step-desc {
-      font-size: 16px;
-      color: #cccccc;
-      line-height: 1.7;
-    }
-    .watch-note {
-      background: var(--bg2);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 20px 24px;
-      font-size: 0.9rem;
-      color: var(--text-mid);
-      line-height: 1.7;
-    }
-    .watch-note strong { color: var(--text); }
-    .watch-note code {
-      font-family: var(--mono);
-      font-size: 0.85rem;
-      color: var(--green);
-    }
-
-    .philosophy {
-      padding: 80px 0;
-      text-align: center;
-      border-top: 1px solid var(--border);
-      border-bottom: 1px solid var(--border);
-    }
-    .philosophy p {
-      font-size: 1.05rem;
-      color: var(--text-mid);
-      line-height: 1.9;
-    }
-    .philosophy strong { color: #fff; }
-
-    .demo-svg { margin-bottom: 0; }
-
-    @media (max-width: 600px) {
-      .how-step-grid { grid-template-columns: 1fr; }
-    }
-  </style>
 </head>
 <body>
 
@@ -198,14 +63,14 @@
 
     <div class="install-block">
       <code id="install-cmd">npm install -g @groundctl/cli</code>
-      <button class="copy-btn" onclick="copyInstall()" title="Copy to clipboard">
+      <button class="copy-btn" title="Copy to clipboard">
         <span id="copy-label">copy</span>
       </button>
     </div>
 
     <div class="hero-links">
-      <a href="https://github.com/patrickjoubert/groundctl" class="btn-secondary">★ Star on GitHub</a>
-      <a href="https://www.npmjs.com/package/@groundctl/cli" class="btn-ghost">npm</a>
+      <a href="https://github.com/patrickjoubert/groundctl" class="btn-secondary" rel="noopener noreferrer">★ Star on GitHub</a>
+      <a href="https://www.npmjs.com/package/@groundctl/cli" class="btn-ghost" rel="noopener noreferrer">npm</a>
     </div>
   </section>
 
@@ -358,7 +223,8 @@
       Each agent read it on startup and knew exactly where to start.
     </p>
     <a href="https://github.com/patrickjoubert/groundctl/blob/main/PROJECT_STATE.md"
-       class="btn-secondary" style="display:inline-block;margin-top:16px;">
+       class="btn-secondary" style="display:inline-block;margin-top:16px;"
+       rel="noopener noreferrer">
       View PROJECT_STATE.md →
     </a>
   </section>
@@ -367,29 +233,32 @@
   <footer>
     <p class="meta">
       groundctl.org &middot; MIT License &middot;
-      <a href="https://github.com/patrickjoubert/groundctl/blob/main/PROJECT_STATE.md">PROJECT_STATE.md</a>
+      <a href="https://github.com/patrickjoubert/groundctl/blob/main/PROJECT_STATE.md" rel="noopener noreferrer">PROJECT_STATE.md</a>
     </p>
     <p class="footer-links">
-      <a href="https://github.com/patrickjoubert/groundctl">GitHub</a>
+      <a href="https://github.com/patrickjoubert/groundctl" rel="noopener noreferrer">GitHub</a>
       &middot;
-      <a href="https://www.npmjs.com/package/@groundctl/cli">npm</a>
+      <a href="https://www.npmjs.com/package/@groundctl/cli" rel="noopener noreferrer">npm</a>
       &middot;
-      Created by <a href="https://github.com/patrickjoubert">Patrick Joubert</a>,
-      co-founder of <a href="https://rippletide.com">Rippletide</a>
+      Created by <a href="https://github.com/patrickjoubert" rel="noopener noreferrer">Patrick Joubert</a>,
+      co-founder of <a href="https://rippletide.com" rel="noopener noreferrer">Rippletide</a>
     </p>
   </footer>
 
 </main>
 
 <script>
-function copyInstall() {
-  const text = document.getElementById('install-cmd').textContent;
-  navigator.clipboard.writeText(text).then(() => {
-    const label = document.getElementById('copy-label');
-    label.textContent = 'copied!';
-    setTimeout(() => { label.textContent = 'copy'; }, 2000);
-  });
-}
+(function () {
+  function copyInstall() {
+    var text = document.getElementById('install-cmd').textContent;
+    navigator.clipboard.writeText(text).then(function () {
+      var label = document.getElementById('copy-label');
+      label.textContent = 'copied!';
+      setTimeout(function () { label.textContent = 'copy'; }, 2000);
+    });
+  }
+  document.querySelector('.copy-btn').addEventListener('click', copyInstall);
+}());
 </script>
 
 </body>

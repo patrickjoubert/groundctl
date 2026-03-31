@@ -392,6 +392,160 @@ footer {
 .footer-links a { color: var(--text-dim); }
 .footer-links a:hover { color: var(--text); }
 
+/* ── HOOK ─────────────────────────────────────── */
+
+.hook {
+  padding: 80px 0;
+  text-align: center;
+  border-top: 1px solid #333;
+}
+.hook-line {
+  font-size: 1.15rem;
+  color: var(--text-mid);
+  line-height: 1.9;
+}
+.hook-line strong {
+  color: #fff;
+  font-size: 1.2rem;
+}
+
+/* ── PROBLEM LIST ─────────────────────────────── */
+
+.problem-list {
+  padding: 0 0 80px;
+  border-bottom: 1px solid var(--border);
+  text-align: center;
+}
+.problem-list p {
+  font-size: 20px;
+  color: #e8e8e8;
+  margin-bottom: 14px;
+  font-weight: 400;
+}
+.problem-list ul {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.problem-list li {
+  font-size: 18px;
+  color: #cccccc;
+  padding-left: 0;
+}
+.problem-list li::before {
+  content: "→ ";
+  color: var(--text-dim);
+}
+
+/* ── CORE LOOP ────────────────────────────────── */
+
+.core-loop {
+  padding: 80px 0;
+}
+.core-loop h2 {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-family: var(--mono);
+  margin-bottom: 28px;
+}
+
+/* ── HOW STEPS ────────────────────────────────── */
+
+.how-steps {
+  padding: 80px 0;
+  border-top: 1px solid var(--border);
+}
+.how-steps h2 {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-family: var(--mono);
+  margin-bottom: 28px;
+}
+.how-step-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  margin-bottom: 28px;
+}
+.how-step-card {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 22px 20px;
+}
+.how-step-num {
+  font-family: var(--mono);
+  font-size: 1.4rem;
+  color: var(--green);
+  font-weight: 700;
+  margin-bottom: 10px;
+}
+.how-step-cmd {
+  font-family: var(--mono);
+  font-size: 0.9rem;
+  color: var(--green);
+  margin-bottom: 8px;
+}
+.how-step-desc {
+  font-size: 16px;
+  color: #cccccc;
+  line-height: 1.7;
+}
+.watch-note {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 20px 24px;
+  font-size: 0.9rem;
+  color: var(--text-mid);
+  line-height: 1.7;
+}
+.watch-note strong { color: var(--text); }
+.watch-note code {
+  font-family: var(--mono);
+  font-size: 0.85rem;
+  color: var(--green);
+}
+
+/* ── PHILOSOPHY ───────────────────────────────── */
+
+.philosophy {
+  padding: 80px 0;
+  text-align: center;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+.philosophy p {
+  font-size: 1.05rem;
+  color: var(--text-mid);
+  line-height: 1.9;
+}
+.philosophy strong { color: #fff; }
+
+/* ── WORKS WITH ───────────────────────────────── */
+
+.works-with-tagline {
+  margin-top: 24px;
+  text-align: center;
+}
+.works-with-tagline p {
+  font-size: 1.05rem;
+  color: var(--text-mid);
+  line-height: 1.8;
+}
+.works-with-tagline strong { color: #fff; }
+
+/* ── MISC ─────────────────────────────────────── */
+
+.demo-svg { margin-bottom: 0; }
+
 /* ── RESPONSIVE ───────────────────────────────── */
 
 @media (max-width: 600px) {
@@ -402,4 +556,5 @@ footer {
   .cmd-row { flex-direction: column; align-items: flex-start; gap: 4px; }
   .cmd-row code { min-width: unset; }
   .terminal { padding: 20px 18px; font-size: 0.78rem; }
+  .how-step-grid { grid-template-columns: 1fr; }
 }
