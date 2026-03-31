@@ -6,6 +6,12 @@
       "runtimeExecutable": "node",
       "runtimeArgs": ["packages/cli/dist/index.js", "dashboard"],
       "port": 4242
+    },
+    {
+      "name": "site",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["serve", "-l", "5555", "site"],
+      "port": 5555
     }
   ]
 }

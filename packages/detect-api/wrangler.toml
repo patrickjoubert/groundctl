@@ -11,7 +11,7 @@ enabled = true
 # Then replace the id below with the output id
 [[kv_namespaces]]
 binding = "RATE_LIMIT"
-id      = "REPLACE_WITH_KV_NAMESPACE_ID"
+id      = "fef8b0d18c0e48c5bbd38f6761ad2c07"
 
 # Custom domain: detect.groundctl.org
 # Add CNAME in Cloudflare DNS → <name>.workers.dev
