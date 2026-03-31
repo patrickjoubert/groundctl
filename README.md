@@ -160,7 +160,7 @@ That's what groundctl solves.
 ## Meta
 
 groundctl was built using groundctl.
-15 sessions · 24 features · 100% implemented
+18 sessions · 29 features · 100% implemented
 
 View [PROJECT_STATE.md](PROJECT_STATE.md) to see exactly how it was built.
 
