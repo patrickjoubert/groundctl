@@ -186,14 +186,27 @@
   <!-- WORKS WITH -->
   <section class="works-with">
     <h2>Works with your orchestrator</h2>
+
+    <div class="how-step-grid" style="margin-bottom:28px">
+      <div class="how-step-card">
+        <div class="how-step-num">Native</div>
+        <div class="how-step-cmd">Claude Code Agent Teams</div>
+        <div class="how-step-desc">PROJECT_STATE.md and AGENTS.md are loaded automatically by every teammate at startup. No export needed.</div>
+      </div>
+      <div class="how-step-card">
+        <div class="how-step-num">Native</div>
+        <div class="how-step-cmd">Codex CLI</div>
+        <div class="how-step-desc">Hooks, watcher, and JSONL parser built-in. <code>groundctl watch</code> detects Codex sessions automatically.</div>
+      </div>
+      <div class="how-step-card">
+        <div class="how-step-num">Export</div>
+        <div class="how-step-cmd">Conductor</div>
+        <div class="how-step-desc">Generates a task list you can use as reference when setting up Conductor workspaces.</div>
+      </div>
+    </div>
+
     <pre class="terminal"><span class="prompt">$</span> groundctl export --conductor
-  <span class="success">→</span> .conductor/tasks.md — ready to import
-
-<span class="prompt">$</span> groundctl export --agent-teams
-  <span class="success">→</span> .claude/tasks/groundctl-export.json
-
-<span class="prompt">$</span> groundctl export --json
-  <span class="success">→</span> groundctl-export.json — any orchestrator</pre>
+  <span class="success">→</span> .conductor/tasks.md</pre>
 
     <div class="works-with-tagline">
       <p>Conductor runs your agents.<br><strong>groundctl tells them what to build.</strong></p>

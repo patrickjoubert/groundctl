@@ -256,7 +256,7 @@ export async function exportCommand(options: {
   const projectPath = process.cwd();
 
   if (!options.conductor && !options.agentTeams && !options.json) {
-    // Default: run both conductor and agent-teams
+    // Default: show guidance for all integrations
     options.conductor = true;
     options.agentTeams = true;
   }
@@ -288,32 +288,31 @@ export async function exportCommand(options: {
       blockedCount > 0 ? `${blockedCount} blocked` : "",
     ].filter(Boolean).join(", ") || "no tasks";
 
-    console.log(chalk.green("  ✓ Conductor export ready"));
-    console.log(chalk.gray(`  → .conductor/tasks.md (${taskSummary})`));
+    console.log(chalk.green("  ✓ .conductor/tasks.md generated") + chalk.gray(` (${taskSummary})`));
     console.log();
-    console.log(chalk.gray("  Open Conductor, create a new workspace,"));
-    console.log(chalk.gray("  and import .conductor/tasks.md as your task list."));
+    console.log(chalk.gray("  Import into Conductor:"));
+    console.log(chalk.gray("  Open Conductor → New workspace → paste task descriptions."));
     console.log();
-    console.log(chalk.gray("  Each agent will read PROJECT_STATE.md on startup"));
-    console.log(chalk.gray("  and know exactly where the product stands."));
+    console.log(chalk.gray("  Note: this is a formatted task list, not a native"));
+    console.log(chalk.gray("  Conductor import format."));
     console.log();
   }
 
   // ── Claude Code Agent Teams ─────────────────────────────────────────────────
   if (options.agentTeams) {
-    const agentTeamsDir = join(projectPath, ".claude", "tasks");
-    const outPath = join(agentTeamsDir, "groundctl-export.json");
-
-    const payload = agentTeamsPayload(projectName, ready, blocked);
-    writeFile(outPath, JSON.stringify(payload, null, 2) + "\n");
-
-    console.log(chalk.green("  ✓ Claude Code Agent Teams export ready"));
-    console.log(chalk.gray(`  → .claude/tasks/groundctl-export.json`));
+    console.log(chalk.green("  ✓ Agent Teams reads PROJECT_STATE.md + AGENTS.md automatically."));
     console.log();
-    console.log(chalk.gray("  Enable Agent Teams:"));
-    console.log(chalk.white("  CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1 claude"));
+    console.log(chalk.gray("  Every teammate loads them on startup — no export needed."));
     console.log();
-    console.log(chalk.gray(`  Then: 'Load tasks from groundctl-export.json'`));
+    console.log(chalk.gray("  To start:"));
+    console.log(chalk.gray("  1. Add to .claude/settings.json:"));
+    console.log(chalk.white('     {"env": {"CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"}}'));
+    console.log();
+    console.log(chalk.gray("  2. Tell Claude Code:"));
+    console.log(chalk.white("     'Create an agent team. Each teammate should read AGENTS.md"));
+    console.log(chalk.white("      first, then claim a feature using groundctl claim <feature>'"));
+    console.log();
+    console.log(chalk.gray("  groundctl watch auto-ingests every teammate session."));
     console.log();
   }
 

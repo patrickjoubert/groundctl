@@ -43,10 +43,14 @@ groundctl works alongside your orchestrator.
 Use Conductor or Claude Code Agent Teams to run agents —
 use groundctl to know what they should build.
 
-  groundctl export --conductor
-  → exports your product plan as Conductor tasks
-  → each agent reads PROJECT_STATE.md on startup
-  → no more 'what should I build?' at session start
+  Claude Code Agent Teams teammates automatically read
+  PROJECT_STATE.md and AGENTS.md on startup — they know
+  your product state before writing a single line of code.
+  No export needed. It just works.
+
+  For Conductor: groundctl export --conductor generates
+  a task list you can use as reference when setting up
+  Conductor workspaces.
 
 Install:
   npm install -g @groundctl/cli

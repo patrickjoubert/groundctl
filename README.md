@@ -114,19 +114,31 @@ Three views — **LE PLAN** (full product map, feature cards by group), **LE CHA
 
 ## Works with your orchestrator
 
-groundctl tells your agents what to build.
-Your orchestrator runs them.
+**Claude Code Agent Teams** (native)
+PROJECT_STATE.md and AGENTS.md are loaded automatically
+by every teammate at startup. No export needed.
+
+```bash
+# .claude/settings.json
+{"env": {"CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"}}
+
+# Then tell Claude Code:
+# "Create an agent team. Each teammate should read AGENTS.md
+#  first, then claim a feature using groundctl claim <feature>"
+```
+
+**Codex CLI** (native)
+Hooks, watcher, and parser built-in.
+`groundctl watch` detects Codex sessions automatically.
+
+**Conductor** (task export)
+`groundctl export --conductor` generates a task list
+you can use as reference when setting up Conductor workspaces.
 
 ```bash
 groundctl export --conductor
-→ .conductor/tasks.md — ready to import
-
-groundctl export --agent-teams
-→ .claude/tasks/groundctl-export.json
+→ .conductor/tasks.md
 ```
-
-Compatible with Conductor, Claude Code Agent Teams,
-and any tool that reads task lists.
 
 > "Conductor runs your agents.
 >  groundctl tells them what to build."
@@ -136,9 +148,9 @@ and any tool that reads task lists.
 ## Works with
 
 - **Claude Code** — hooks installed automatically
-- **Codex CLI** — hooks included
-- **Conductor** — `groundctl export --conductor`
-- **Claude Code Agent Teams** — `groundctl export --agent-teams`
+- **Codex CLI** — hooks included, watcher built-in
+- **Claude Code Agent Teams** — PROJECT_STATE.md + AGENTS.md loaded natively at startup
+- **Conductor** — `groundctl export --conductor` generates a task list
 - **Any agent** — CLI is agent-agnostic
 
 ---
