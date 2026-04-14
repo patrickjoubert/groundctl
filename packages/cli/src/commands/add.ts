@@ -3,6 +3,18 @@ import { randomUUID } from "node:crypto";
 import { openDb, closeDb, saveDb } from "../storage/db.js";
 import { queryOne } from "../storage/query.js";
 
+async function verifyFeaturePersisted(id: string, name: string): Promise<void> {
+  const db = await openDb();
+  const row = queryOne<{ id: string }>(db, "SELECT id FROM features WHERE id = ?", [id]);
+  closeDb();
+  if (!row) {
+    throw new Error(
+      `Feature write did not persist (id="${id}"). ` +
+      `Retry: groundctl add feature -n '${name}'`
+    );
+  }
+}
+
 /** Parse "11/11" → { done: 11, total: 11 }, or null on bad input. */
 function parseProgress(s: string): { done: number; total: number } | null {
   const m = s.match(/^(\d+)\/(\d+)$/);
@@ -61,6 +73,11 @@ export async function addCommand(
 
     saveDb();
     closeDb();
+
+    // Read-back check: verify the row actually landed on disk.
+    // Catches the rare race where a concurrent process overwrote the file
+    // between our write and the next read.
+    await verifyFeaturePersisted(id, options.name);
 
     const extras: string[] = [];
     if (progressDone !== null) extras.push(`${progressDone}/${progressTotal}`);
